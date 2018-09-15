@@ -1,16 +1,22 @@
+"""Library to handle connection with met.no api"""
+import asyncio
 import logging
+import xmltodict
 from xml.parsers.expat import ExpatError
 
 import aiohttp
 import async_timeout
-import asyncio
-import xmltodict
+
 
 DEFAULT_API_URL = 'https://api.met.no/weatherapi/locationforecast/1.9/'
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class MetWeatherData:
+    """Representation of met weather data."""
+    # pylint: disable=R0903
+
     def __init__(self, urlparams, websession=None, api_url=DEFAULT_API_URL):
         self._urlparams = urlparams
         self._api_url = api_url
@@ -18,17 +24,17 @@ class MetWeatherData:
             async def _create_session():
                 return aiohttp.ClientSession()
             loop = asyncio.get_event_loop()
-            self.websession = loop.run_until_complete(_create_session())
+            self._websession = loop.run_until_complete(_create_session())
         else:
-            self.websession = websession
+            self._websession = websession
         self._weather_data = None
 
     async def fetching_data(self, *_):
         """Get the latest data from met.no."""
 
         try:
-            with async_timeout.timeout(10, loop=self.hass.loop):
-                resp = await self._websession.get(self._url, params=self._urlparams)
+            with async_timeout.timeout(10):
+                resp = await self._websession.get(self._api_url, params=self._urlparams)
             if resp.status != 200:
                 _LOGGER.error('%s returned %s', resp.url, resp.status)
                 return False
@@ -69,3 +75,4 @@ def get_forecast(param, data):
             return new_state
     except (ValueError, IndexError, KeyError):
         return None
+
