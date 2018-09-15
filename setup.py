@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name = 'PyMetno',
     packages = ['metno'],
-    install_requires=[],
+    install_requires=['xmltodict'],
     version = '0.1',
     description = 'A library to communicate with the met.no api',
     author='Daniel Hoyer Iversen',
