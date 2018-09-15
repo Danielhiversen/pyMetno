@@ -1,0 +1,24 @@
+sudo: false
+matrix:
+  fast_finish: true
+  include:
+  - python: '3.5'
+    env: TOXENV=lint
+cache:
+  directories:
+  - "$HOME/.cache/pip"
+install:
+- pip install flake8 pylint xmltodict
+language: python
+script:
+- flake8 metno --max-line-length=120
+- pylint metno --max-line-length=120
+deploy:
+  provider: pypi
+  user: dahoiv
+  password:
+    secure: N0vje9ws2LY5v/BFLQpbohpWiJi6I4fla68M5rqpJNHXmHQAQV45Mhf78Dn82N/Ukdcr6ST1h244Fm29pAMq1USbWv49V2Vplpy6HpStDSmzNKHimXepzXKMhCGLVWNpqJY/lywmLRU1kjxSRS1RD+Ymb6ZvHL5lgcAdSepbkCSsD4pOpBixU02WG+IgqrfjG43jSgTwk456RAsQ//tfUJUpT6wHY+oXCMGgxY9GaMqBHtayS6JBginmLtFsHJ/eRh5ADi+PbUkM8QyFhhpvctHfxR/EKZmY4i8XgBQXmNya4uUp2jy0npTlKIOtdHFdxANn2kPKxUrnsOIT5m4QtnSNe2RtStDYzRoNWX5wM454nbaxdV56nn3Jyg1VmEOldMVwVbMSPrMRc9iSv0jNLfxN8EnXwPnexRucY430ciKt7oGGrNPa7LEhzObdFsEFAgt+60/+P/0lajMu2e2inrYHmQjbkSwrejKXXnJ0pqugduM9iJWJvCdg4g3ykZc4XW23nMiqFjp5/E8vyp5scuTPQENjhKOiREKWiodt5ltvO05bdpjSpF4pFzHNK48kwGykqe/saBAzTUUwfnA+LodE+ObpilrUlM6XjHWgKuQkbWOrTJDgEk/f3p/HMdYkn1H6+LbNvFpbaku0Yke/ErLOMIoJByqIbgHd04jjGPI=
+  on:
+    tags: true
+    distributions: sdist bdist_wheel
+    repo: Danielhiversen/pyMetno
