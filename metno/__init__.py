@@ -27,7 +27,7 @@ class MetWeatherData:
             self._websession = loop.run_until_complete(_create_session())
         else:
             self._websession = websession
-        self._weather_data = None
+        self.data = None
 
     async def fetching_data(self, *_):
         """Get the latest data from met.no."""
@@ -43,7 +43,7 @@ class MetWeatherData:
             _LOGGER.error('%s returned %s', resp.url, err)
             return False
         try:
-            self._weather_data = xmltodict.parse(text)['weatherdata']
+            self.data = xmltodict.parse(text)['weatherdata']
         except (ExpatError, IndexError) as err:
             _LOGGER.error('%s returned %s', resp.url, err)
             return False
@@ -75,4 +75,3 @@ def get_forecast(param, data):
             return new_state
     except (ValueError, IndexError, KeyError):
         return None
-
