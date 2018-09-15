@@ -1,9 +1,9 @@
 """Library to handle connection with met.no api"""
 import asyncio
 import logging
-import xmltodict
 from xml.parsers.expat import ExpatError
 
+import xmltodict
 import aiohttp
 import async_timeout
 
@@ -75,4 +75,3 @@ def get_forecast(param, data):
             return new_state
     except (ValueError, IndexError, KeyError):
         return None
-
