@@ -1,9 +1,9 @@
 """Library to handle connection with met.no api"""
 import asyncio
 import logging
-import xmltodict
 from xml.parsers.expat import ExpatError
 
+import xmltodict
 import aiohttp
 import async_timeout
 
