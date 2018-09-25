@@ -1,5 +1,6 @@
 """Library to handle connection with met.no api"""
 import asyncio
+import datetime
 import logging
 from xml.parsers.expat import ExpatError
 
@@ -15,7 +16,6 @@ _LOGGER = logging.getLogger(__name__)
 
 class MetWeatherData:
     """Representation of met weather data."""
-    # pylint: disable=R0903
 
     def __init__(self, urlparams, websession=None, api_url=DEFAULT_API_URL):
         self._urlparams = urlparams
@@ -49,9 +49,56 @@ class MetWeatherData:
             return False
         return True
 
+    def get_current_weather(self):
+        """Get the current weather data from met.no."""
+        return self.get_weather(datetime.datetime.now())
 
-def get_forecast(param, data):
-    """Retrieve forecast parameter."""
+    def get_forecast(self):
+        """Get the forecast weather data from met.no."""
+        if self.data is None:
+            return []
+
+        times = [datetime.datetime.now() + datetime.timedelta(days=k) for k in range(1, 6)]
+        return [self.get_weather(_time, 12) for _time in times]
+
+    def get_weather(self, time, max_hour=6):
+        """Get the current weather data from met.no."""
+        if self.data is None:
+            return {}
+
+        ordered_entries = []
+        for time_entry in self._weather_data.data['product']['time']:
+            valid_from = dt_util.parse_datetime(time_entry['@from'])
+            valid_to = dt_util.parse_datetime(time_entry['@to'])
+
+            if time >= valid_to:
+                # Has already passed. Never select this.
+                continue
+
+            average_dist = (abs((valid_to - time).total_seconds()) +
+                            abs((valid_from - time).total_seconds()))
+
+            if average_dist > max_hour * 3600:
+                continue
+
+            ordered_entries.append((average_dist, time_entry))
+
+        if not ordered_entries:
+            return {}
+        ordered_entries.sort(key=lambda item: item[0])
+
+        res = dict()
+        res['temperature'] = get_data('temperature', ordered_entries)
+        res['condition'] = get_data('symbol', ordered_entries)
+        res['pressure'] = get_data('pressure', ordered_entries)
+        res['humidity'] = get_data('humidity', ordered_entries)
+        res['wind_speed'] = get_data('windSpeed', ordered_entries)
+        res['wind_bearing'] = get_data('windDirection', ordered_entries)
+        return res
+
+
+def get_data(param, data):
+    """Retrieve weather parameter."""
 
     try:
         for (_, selected_time_entry) in data:
