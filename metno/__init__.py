@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import logging
+import pytz
 from xml.parsers.expat import ExpatError
 
 import xmltodict
@@ -12,7 +13,6 @@ import async_timeout
 DEFAULT_API_URL = 'https://api.met.no/weatherapi/locationforecast/1.9/'
 
 _LOGGER = logging.getLogger(__name__)
-
 
 class MetWeatherData:
     """Representation of met weather data."""
@@ -51,14 +51,14 @@ class MetWeatherData:
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""
-        return self.get_weather(datetime.datetime.now())
+        return self.get_weather(datetime.datetime.now(pytz.utc))
 
     def get_forecast(self):
         """Get the forecast weather data from met.no."""
         if self.data is None:
             return []
 
-        times = [datetime.datetime.now() + datetime.timedelta(days=k) for k in range(1, 6)]
+        times = [datetime.datetime.now(pytz.utc) + datetime.timedelta(days=k) for k in range(1, 6)]
         return [self.get_weather(_time, 12) for _time in times]
 
     def get_weather(self, time, max_hour=6):
@@ -67,10 +67,9 @@ class MetWeatherData:
             return {}
 
         ordered_entries = []
-        for time_entry in self._weather_data.data['product']['time']:
-            valid_from = dt_util.parse_datetime(time_entry['@from'])
-            valid_to = dt_util.parse_datetime(time_entry['@to'])
-
+        for time_entry in self.data['product']['time']:
+            valid_from = parse_datetime(time_entry['@from'])
+            valid_to = parse_datetime(time_entry['@to'])
             if time >= valid_to:
                 # Has already passed. Never select this.
                 continue
@@ -88,6 +87,7 @@ class MetWeatherData:
         ordered_entries.sort(key=lambda item: item[0])
 
         res = dict()
+        res['datetime'] = time
         res['temperature'] = get_data('temperature', ordered_entries)
         res['condition'] = get_data('symbol', ordered_entries)
         res['pressure'] = get_data('pressure', ordered_entries)
@@ -122,3 +122,11 @@ def get_data(param, data):
             return new_state
     except (ValueError, IndexError, KeyError):
         return None
+
+
+def parse_datetime(dt_str):
+    """Parse datetime."""
+
+    date_format = "%Y-%m-%dT%H:%M:%S %z"
+    dt_str = dt_str.replace("Z", " +0000")
+    return datetime.datetime.strptime(dt_str, date_format)
