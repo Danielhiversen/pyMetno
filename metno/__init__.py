@@ -79,11 +79,11 @@ class MetWeatherData:
             with async_timeout.timeout(10):
                 resp = await self._websession.get(self._api_url, params=self._urlparams)
             if resp.status != 200:
-                _LOGGER.error('%s returned %s', resp.url, resp.status)
+                _LOGGER.error('%s returned %s', self._api_url, resp.status)
                 return False
             text = await resp.text()
         except (asyncio.TimeoutError, aiohttp.ClientError) as err:
-            _LOGGER.error('%s returned %s', resp.url, err)
+            _LOGGER.error('%s returned %s', self._api_url, err)
             return False
         try:
             self.data = xmltodict.parse(text)['weatherdata']
