@@ -2,17 +2,60 @@
 import asyncio
 import datetime
 import logging
-import pytz
 from xml.parsers.expat import ExpatError
 
-import xmltodict
 import aiohttp
 import async_timeout
+import pytz
+import xmltodict
 
-
+# https://api.met.no/weatherapi/weathericon/_/documentation/#___top
+CONDITIONS = {1: 'sunny',
+              2: 'partlycloudy',
+              3: 'partlycloudy',
+              4: 'cloudy',
+              5: 'rainy',
+              6: 'lightning-rainy',
+              7: 'snowy-rainy',
+              8: 'snowy',
+              9: 'rainy',
+              10: 'rainy',
+              11: 'lightning-rainy',
+              12: 'snowy-rainy',
+              13: 'snowy',
+              14: 'snowy',
+              15: 'fog',
+              20: 'lightning-rainy',
+              21: 'lightning-rainy',
+              22: 'lightning-rainy',
+              23: 'lightning-rainy',
+              24: 'lightning-rainy',
+              25: 'lightning-rainy',
+              26: 'lightning-rainy',
+              27: 'lightning-rainy',
+              28: 'lightning-rainy',
+              29: 'lightning-rainy',
+              30: 'lightning-rainy',
+              31: 'lightning-rainy',
+              32: 'lightning-rainy',
+              33: 'lightning-rainy',
+              34: 'lightning-rainy',
+              40: 'rainy',
+              41: 'rainy',
+              42: 'snowy-rainy',
+              43: 'snowy-rainy',
+              44: 'snowy',
+              45: 'snowy',
+              46: 'rainy',
+              47: 'snowy-rainy',
+              48: 'snowy-rainy',
+              49: 'snowy',
+              50: 'snowy',
+              }
 DEFAULT_API_URL = 'https://api.met.no/weatherapi/locationforecast/1.9/'
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class MetWeatherData:
     """Representation of met weather data."""
@@ -89,7 +132,7 @@ class MetWeatherData:
         res = dict()
         res['datetime'] = time
         res['temperature'] = get_data('temperature', ordered_entries)
-        res['condition'] = get_data('symbol', ordered_entries)
+        res['condition'] = CONDITIONS.get(get_data('symbol', ordered_entries))
         res['pressure'] = get_data('pressure', ordered_entries)
         res['humidity'] = get_data('humidity', ordered_entries)
         res['wind_speed'] = get_data('windSpeed', ordered_entries)
@@ -126,7 +169,6 @@ def get_data(param, data):
 
 def parse_datetime(dt_str):
     """Parse datetime."""
-
     date_format = "%Y-%m-%dT%H:%M:%S %z"
     dt_str = dt_str.replace("Z", " +0000")
     return datetime.datetime.strptime(dt_str, date_format)
