@@ -96,13 +96,15 @@ class MetWeatherData:
         """Get the current weather data from met.no."""
         return self.get_weather(datetime.datetime.now(pytz.utc))
 
-    def get_forecast(self):
+    def get_forecast(self, time_zone):
         """Get the forecast weather data from met.no."""
         if self.data is None:
             return []
 
-        times = [datetime.datetime.now(pytz.utc) + datetime.timedelta(days=k) for k in range(1, 6)]
-        return [self.get_weather(_time, 12) for _time in times]
+        now = datetime.datetime.now(time_zone).replace(hour=12, minute=0,
+                                                       second=0, microsecond=0)
+        times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
+        return [self.get_weather(_time) for _time in times]
 
     def get_weather(self, time, max_hour=6):
         """Get the current weather data from met.no."""
@@ -113,7 +115,7 @@ class MetWeatherData:
         for time_entry in self.data['product']['time']:
             valid_from = parse_datetime(time_entry['@from'])
             valid_to = parse_datetime(time_entry['@to'])
-            if time >= valid_to:
+            if time > valid_to:
                 # Has already passed. Never select this.
                 continue
 
@@ -128,7 +130,6 @@ class MetWeatherData:
         if not ordered_entries:
             return {}
         ordered_entries.sort(key=lambda item: item[0])
-
         res = dict()
         res['datetime'] = time
         res['temperature'] = get_data('temperature', ordered_entries)
