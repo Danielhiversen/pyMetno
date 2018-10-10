@@ -155,7 +155,7 @@ def get_data(param, data):
             elif param == 'symbol':
                 new_state = int(float(loc_data[param]['@number']))
             elif param in ('temperature', 'pressure', 'humidity',
-                           'dewpointTemperature', 'templow):
+                           'dewpointTemperature', 'templow'):
                 new_state = round(float(loc_data[param]['@value']), 1)
             elif param in ('windSpeed', 'windGust'):
                 new_state = round(float(loc_data[param]['@mps']) * 3.6, 1)
