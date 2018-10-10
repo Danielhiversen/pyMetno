@@ -138,6 +138,7 @@ class MetWeatherData:
         res['humidity'] = get_data('humidity', ordered_entries)
         res['wind_speed'] = get_data('windSpeed', ordered_entries)
         res['wind_bearing'] = get_data('windDirection', ordered_entries)
+        res['templow'] = get_data('minTemperature', ordered_entries)
         return res
 
 
@@ -154,7 +155,7 @@ def get_data(param, data):
             elif param == 'symbol':
                 new_state = int(float(loc_data[param]['@number']))
             elif param in ('temperature', 'pressure', 'humidity',
-                           'dewpointTemperature'):
+                           'dewpointTemperature', 'templow):
                 new_state = round(float(loc_data[param]['@value']), 1)
             elif param in ('windSpeed', 'windGust'):
                 new_state = round(float(loc_data[param]['@mps']) * 3.6, 1)
