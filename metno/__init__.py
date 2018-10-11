@@ -101,12 +101,12 @@ class MetWeatherData:
         if self.data is None:
             return []
 
-        now = datetime.datetime.now(time_zone).replace(hour=12, minute=0,
+        now = datetime.datetime.now(time_zone).replace(hour=0, minute=0,
                                                        second=0, microsecond=0)
         times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
         return [self.get_weather(_time) for _time in times]
 
-    def get_weather(self, time, max_hour=6):
+    def get_weather(self, time, max_hour=48):
         """Get the current weather data from met.no."""
         if self.data is None:
             return {}
