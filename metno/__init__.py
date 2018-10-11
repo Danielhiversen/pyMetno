@@ -138,9 +138,25 @@ class MetWeatherData:
         res['humidity'] = get_data('humidity', ordered_entries)
         res['wind_speed'] = get_data('windSpeed', ordered_entries)
         res['wind_bearing'] = get_data('windDirection', ordered_entries)
-        res['tempLow'] = get_data('minTemperature', ordered_entries)
+        res['templow'] = get_minmax('templow', ordered_entries)
+        res['temphigh'] = get_minmax('temphigh', ordered_entries)
         return res
 
+def get_minmax(param, data):
+    """Retrieve min/max temperature."""
+
+    temps = []
+    try:
+        for (_, selected_time_entry) in data:
+            loc_data = selected_time_entry['location']
+            if 'temperature' not in loc_data:
+                continue
+            temps.append(round(float(loc_data['temperature']['@value']), 1))
+    except (ValueError, IndexError, KeyError):
+            return None
+
+    finally:
+        return min(temps) if param == 'templow' else max(temps)
 
 def get_data(param, data):
     """Retrieve weather parameter."""
