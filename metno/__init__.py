@@ -141,7 +141,6 @@ class MetWeatherData:
         minmax = get_min_max(ordered_entries)
         res['templow'] = minmax['min']
         res['temphigh'] = minmax['max']
-        print(str(res['datetime']) + ": " + str(res['temphigh']) + " | " + str(res['templow']))
         return res
 
 def get_min_max(data):
