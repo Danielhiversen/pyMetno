@@ -138,25 +138,26 @@ class MetWeatherData:
         res['humidity'] = get_data('humidity', ordered_entries)
         res['wind_speed'] = get_data('windSpeed', ordered_entries)
         res['wind_bearing'] = get_data('windDirection', ordered_entries)
-        res['templow'] = get_minmax('templow', ordered_entries)
-        res['temphigh'] = get_minmax('temphigh', ordered_entries)
+        minmax = get_min_max(ordered_entries)
+        res['templow'] = minmax['min']
+        res['temphigh'] = minmax['max']
+        print(str(res['datetime']) + ": " + str(res['temphigh']) + " | " + str(res['templow']))
         return res
 
-def get_minmax(param, data):
+def get_min_max(data):
     """Retrieve min/max temperature."""
-
     temps = []
-    try:
-        for (_, selected_time_entry) in data:
-            loc_data = selected_time_entry['location']
-            if 'temperature' not in loc_data:
-                continue
-            temps.append(round(float(loc_data['temperature']['@value']), 1))
-    except (ValueError, IndexError, KeyError):
-            return None
+    params = ['temperature', 'minTemperature', 'maxTemperature']
 
-    finally:
-        return min(temps) if param == 'templow' else max(temps)
+    for (_, selected_time_entry) in data:
+        loc_data = selected_time_entry['location']
+        for param in params:
+            if param in loc_data:
+                temps.append(round(float(loc_data[param]['@value']), 1))
+    if (len(temps) < 2):
+        return None
+
+    return {'min': min(temps), 'max': max(temps)}
 
 def get_data(param, data):
     """Retrieve weather parameter."""
