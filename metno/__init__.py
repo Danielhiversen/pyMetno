@@ -171,7 +171,7 @@ def get_data(param, data):
 class AirQualityData:
     """Get the latest data."""
     # pylint: disable=too-many-instance-attributes, too-few-public-methods
-    
+
     def __init__(self, coordinates, forecast, websession):
         """Initialize the Air quality object."""
         self._urlparams = coordinates
