@@ -168,6 +168,66 @@ def get_data(param, data):
         return None
 
 
+class AirQualityData:
+    """Get the latest data."""
+    def __init__(self, coordinates, forecast, websession):
+        """Initialize the Air quality object."""
+        self._urlparams = coordinates
+        self._urlparams['areaclass'] = 'grunnkrets'
+        self._forecast = forecast
+        self._websession = websession
+        self._api_url = 'https://api.met.no/weatherapi/airqualityforecast/0.1/'
+        self.state = None
+        self.unit_of_measurement = ' '
+        self.time = None
+        self._last_update = None
+        self._data = None
+
+    async def update(self):
+        """Update data."""
+        if self._last_update is None or datetime.datetime.now() - self._last_update > datetime.timedelta(1):
+            try:
+                with async_timeout.timeout(10):
+                    resp = await self._websession.get(self._api_url, params=self._urlparams)
+                if resp.status != 200:
+                    _LOGGER.error('%s returned %s', self._api_url, resp.status)
+                    return False
+                self._data = await resp.json()
+            except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+                _LOGGER.error('%s returned %s', self._api_url, err)
+                return False
+        try:
+            forecast_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(hours=self._forecast)
+
+            data = None
+            min_dist = 24 * 3600
+            for _data in self._data['data']['time']:
+                valid_from = parse_datetime(_data['from'])
+                valid_to = parse_datetime(_data['to'])
+
+                if forecast_time >= valid_to:
+                    # Has already passed. Never select this.
+                    continue
+
+                average_dist = (abs((valid_to - forecast_time).total_seconds()) +
+                                abs((valid_from - forecast_time).total_seconds()))
+                if average_dist < min_dist:
+                    min_dist = average_dist
+                    data = _data
+            if not data:
+                return False
+            self.state = data.get('variables', {}).get('AQI', {}).get('value')
+            unit = data.get('variables', {}).get('AQI', {}).get('units')
+            unit = ' ' if unit == '1' else unit
+            self.unit_of_measurement = unit
+            self.time = parse_datetime(data['from'])
+
+        except IndexError as err:
+            _LOGGER.error('%s returned %s', resp.url, err)
+            return False
+        return True
+
+
 def parse_datetime(dt_str):
     """Parse datetime."""
     date_format = "%Y-%m-%dT%H:%M:%S %z"
