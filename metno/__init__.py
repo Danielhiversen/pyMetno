@@ -181,6 +181,7 @@ class AirQualityData:
         self._api_url = 'https://api.met.no/weatherapi/airqualityforecast/0.1/'
         self.state = None
         self.unit_of_measurement = ' '
+        self.level = None
         self.time = None
         self._last_update = None
         self._data = None
