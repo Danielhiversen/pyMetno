@@ -181,13 +181,14 @@ class AirQualityData:
         self._api_url = 'https://api.met.no/weatherapi/airqualityforecast/0.1/'
         self.state = None
         self.unit_of_measurement = ' '
+        self.level = None
         self.time = None
         self._last_update = None
         self._data = None
 
     async def update(self):
         """Update data."""
-        if self._last_update is None or datetime.datetime.now() - self._last_update > datetime.timedelta(1):
+        if self._last_update and datetime.datetime.now() - self._last_update > datetime.timedelta(1):
             try:
                 with async_timeout.timeout(10):
                     resp = await self._websession.get(self._api_url, params=self._urlparams)
@@ -218,10 +219,16 @@ class AirQualityData:
                     data = _data
             if not data:
                 return False
-            self.state = data.get('variables', {}).get('AQI', {}).get('value')
+            state = data.get('variables', {}).get('AQI', {}).get('value')
+            self.state = state
             unit = data.get('variables', {}).get('AQI', {}).get('units')
-            unit = ' ' if unit == '1' else unit
-            self.unit_of_measurement = unit
+            self.unit_of_measurement = ' ' if unit == '1' else unit
+            if state < 2:
+                self.level = "low"
+            elif state < 3:
+                self.level = "medium"
+            else:
+                self.level = "high"
             self.time = parse_datetime(data['from'])
 
         except IndexError as err:
