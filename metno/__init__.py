@@ -188,7 +188,7 @@ class AirQualityData:
 
     async def update(self):
         """Update data."""
-        if self._last_update is None or datetime.datetime.now() - self._last_update > datetime.timedelta(1):
+        if self._last_update is None or datetime.datetime.now() - self._last_update > datetime.timedelta(3600):
             try:
                 with async_timeout.timeout(10):
                     resp = await self._websession.get(self._api_url, params=self._urlparams)
