@@ -179,12 +179,10 @@ class AirQualityData:
         self._forecast = forecast
         self._websession = websession
         self._api_url = 'https://api.met.no/weatherapi/airqualityforecast/0.1/'
-        self.state = None
-        self.unit_of_measurement = ' '
-        self.level = None
-        self.time = None
+        self.data = dict()
+        self.units = dict()
         self._last_update = None
-        self._data = None
+        self._data = dict()
 
     async def update(self):
         """Update data."""
@@ -219,17 +217,36 @@ class AirQualityData:
                     data = _data
             if not data:
                 return False
+            print(data.get('variables', {}).get('pm25_concentration', {}))
+            self.data['aqi'] = data.get('variables', {}).get('AQI', {}).get('value')
+            self.data['pm10_concentration'] = data.get('variables',
+                                                       {}).get('pm10_concentration', {}).get('value')
+            self.data['o3_concentration'] = data.get('variables',
+                                                     {}).get('o3_concentration', {}).get('value')
+            self.data['no2_concentration'] = data.get('variables',
+                                                      {}).get('no2_concentration', {}).get('value')
+            self.data['pm25_concentration'] = data.get('variables',
+                                                       {}).get('pm25_concentration', {}).get('value')
             state = data.get('variables', {}).get('AQI', {}).get('value')
-            self.state = state
-            unit = data.get('variables', {}).get('AQI', {}).get('units')
-            self.unit_of_measurement = ' ' if unit == '1' else unit
             if state < 2:
-                self.level = "low"
+                level = "low"
             elif state < 3:
-                self.level = "medium"
+                level = "medium"
             else:
-                self.level = "high"
-            self.time = parse_datetime(data['from'])
+                level = "high"
+            self.data['level'] = level
+
+            self.units['aqi'] = data.get('variables', {}).get('AQI', {}).get('units')
+            self.units['pm10_concentration'] = data.get('variables',
+                                                        {}).get('pm10_concentration', {}).get('units')
+            self.units['o3_concentration'] = data.get('variables',
+                                                      {}).get('o3_concentration', {}).get('units')
+            self.units['no2_concentration'] = data.get('variables',
+                                                       {}).get('no2_concentration', {}).get('units')
+            self.units['pm25_concentration'] = data.get('variables',
+                                                        {}).get('pm25_concentration', {}).get('units')
+            self.units['aqi'] = data.get('variables', {}).get('AQI', {}).get('value')
+            print(self.data)
 
         except IndexError as err:
             _LOGGER.error('%s returned %s', resp.url, err)
