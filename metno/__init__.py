@@ -182,6 +182,7 @@ class AirQualityData:
         self.data = dict()
         self.units = dict()
         self._last_update = None
+        self._data = dict()
 
     async def update(self):
         """Update data."""
