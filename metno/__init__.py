@@ -217,7 +217,6 @@ class AirQualityData:
                     data = _data
             if not data:
                 return False
-            print(data.get('variables', {}).get('pm25_concentration', {}))
             self.data['aqi'] = data.get('variables', {}).get('AQI', {}).get('value')
             self.data['pm10_concentration'] = data.get('variables',
                                                        {}).get('pm10_concentration', {}).get('value')
@@ -246,7 +245,6 @@ class AirQualityData:
             self.units['pm25_concentration'] = data.get('variables',
                                                         {}).get('pm25_concentration', {}).get('units')
             self.units['aqi'] = data.get('variables', {}).get('AQI', {}).get('value')
-            print(self.data)
 
         except IndexError as err:
             _LOGGER.error('%s returned %s', resp.url, err)
