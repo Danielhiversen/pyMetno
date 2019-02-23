@@ -226,6 +226,8 @@ class AirQualityData:
                                                       {}).get('no2_concentration', {}).get('value')
             self.data['pm25_concentration'] = data.get('variables',
                                                        {}).get('pm25_concentration', {}).get('value')
+            self.data['location'] = "{}, {}".format(self._data.get('meta', {}).get('location', {}).get('name'),
+                                                    self._data.get('meta', {}).get('superlocation', {}).get('name'))
             state = data.get('variables', {}).get('AQI', {}).get('value')
             if state < 2:
                 level = "low"
