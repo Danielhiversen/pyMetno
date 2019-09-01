@@ -2,11 +2,11 @@
 import asyncio
 import datetime
 import logging
+import math
 from xml.parsers.expat import ExpatError
 
 import aiohttp
 import async_timeout
-import math
 import pytz
 import xmltodict
 
