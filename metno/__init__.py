@@ -258,7 +258,7 @@ class AirQualityData:
 
 class LightningData:
     """Get the latest data."""
-      # pylint: disable=too-many-locals, too-few-public-methods
+    # pylint: disable=too-many-locals, too-few-public-methods
 
     def __init__(self, websession):
         """Initialize the Lightning object."""
@@ -306,6 +306,7 @@ class LightningData:
                                            }
 
         return res
+
 
 def parse_datetime(dt_str):
     """Parse datetime."""
