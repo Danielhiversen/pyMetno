@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import logging
+import math
 from xml.parsers.expat import ExpatError
 
 import aiohttp
@@ -53,6 +54,7 @@ CONDITIONS = {1: 'sunny',
               50: 'snowy',
               }
 DEFAULT_API_URL = 'https://api.met.no/weatherapi/locationforecast/1.9/'
+EARTH_RADIUS = 6371 * 1000  # earth radius
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -252,6 +254,58 @@ class AirQualityData:
             _LOGGER.error('%s returned %s', resp.url, err)
             return False
         return True
+
+
+class LightningData:
+    """Get the latest data."""
+    # pylint: disable=too-many-locals, too-few-public-methods
+
+    def __init__(self, websession):
+        """Initialize the Lightning object."""
+        self._websession = websession
+        self._api_url = 'https://api.met.no/weatherapi/lightning/1.0/'
+
+    async def within_radius(self, latitude, longitude, radius):
+        """Get lightning with radius."""
+        try:
+            with async_timeout.timeout(10):
+                resp = await self._websession.get(self._api_url)
+            if resp.status != 200:
+                _LOGGER.error('%s returned %s', self._api_url, resp.status)
+                return []
+            data = await resp.text()
+        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+            _LOGGER.error('%s returned %s', self._api_url, err)
+            return []
+
+        res = {}
+        for row in data.split('\n'):
+            elements = row.split(' ')
+            if len(elements) < 25:
+                continue
+
+            lat = float(elements[8])
+            long = float(elements[9])
+
+            dlat = math.radians(lat - latitude)
+            dlon = math.radians(long - longitude)
+            var_a = (math.sin(dlat / 2) * math.sin(dlat / 2) +
+                     math.cos(math.radians(lat)) * math.cos(math.radians(latitude)) *
+                     math.sin(dlon / 2) * math.sin(dlon / 2))
+            var_c = 2 * math.atan2(math.sqrt(var_a), math.sqrt(1 - var_a))
+            distance = EARTH_RADIUS * var_c
+            if distance > radius:
+                continue
+
+            date = datetime.datetime.strptime("".join(elements[1:7]), "%Y%m%d%H%M%S").astimezone(pytz.utc)
+
+            res["".join(elements[1:8])] = {"distance": distance,
+                                           "lat": lat,
+                                           "long": long,
+                                           "date": date
+                                           }
+
+        return res
 
 
 def parse_datetime(dt_str):
