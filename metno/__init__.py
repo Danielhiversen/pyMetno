@@ -6,6 +6,7 @@ from xml.parsers.expat import ExpatError
 
 import aiohttp
 import async_timeout
+import math
 import pytz
 import xmltodict
 
@@ -257,6 +258,7 @@ class AirQualityData:
 
 class LightningData:
     """Get the latest data."""
+      # pylint: disable=too-many-locals, too-few-public-methods
 
     def __init__(self, websession):
         """Initialize the Lightning object."""
@@ -264,6 +266,7 @@ class LightningData:
         self._api_url = 'https://api.met.no/weatherapi/lightning/1.0/'
 
     async def within_radius(self, latitude, longitude, radius):
+        """Get lightning with radius."""
         try:
             with async_timeout.timeout(10):
                 resp = await self._websession.get(self._api_url)
@@ -286,11 +289,11 @@ class LightningData:
 
             dlat = math.radians(lat - latitude)
             dlon = math.radians(long - longitude)
-            a = (math.sin(dlat / 2) * math.sin(dlat / 2) +
-                 math.cos(math.radians(lat)) * math.cos(math.radians(latitude)) *
-                 math.sin(dlon / 2) * math.sin(dlon / 2))
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-            distance = EARTH_RADIUS * c
+            var_a = (math.sin(dlat / 2) * math.sin(dlat / 2) +
+                     math.cos(math.radians(lat)) * math.cos(math.radians(latitude)) *
+                     math.sin(dlon / 2) * math.sin(dlon / 2))
+            var_c = 2 * math.atan2(math.sqrt(var_a), math.sqrt(1 - var_a))
+            distance = EARTH_RADIUS * var_c
             if distance > radius:
                 continue
 
