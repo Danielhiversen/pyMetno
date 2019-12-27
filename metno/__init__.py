@@ -54,6 +54,40 @@ CONDITIONS = {
     49: "snowy",
     50: "snowy",
 }
+
+
+WEATHER_PARAM_CLOUDINESS = "cloudiness"
+WEATHER_PARAM_DREWPOINT_TEMPERATURE = "dewpointTemperature"
+WEATHER_PARAM_FOG = "fog"
+WEATHER_PARAM_HIGH_CLOUDS = "highClouds"
+WEATHER_PARAM_HUMIDITY = "humidity"
+WEATHER_PARAM_LOW_CLOUDS = "lowClouds"
+WEATHER_PARAM_MEDIUM_CLOUDS = "mediumClouds"
+WEATHER_PARAM_PRECIPITATION = "precipitation"
+WEATHER_PARAM_PRESSURE = "pressure"
+WEATHER_PARAM_SYMBOL = "symbol"
+WEATHER_PARAM_TEMPERATURE = "temperature"
+WEATHER_PARAM_WIND_DIRECTION = "windDirection"
+WEATHER_PARAM_WIND_GUST = "windGust"
+WEATHER_PARAM_WIND_SPEED = "windSpeed"
+WEATHER_PARAMS = [
+    WEATHER_PARAM_CLOUDINESS,
+    WEATHER_PARAM_DREWPOINT_TEMPERATURE,
+    WEATHER_PARAM_FOG,
+    WEATHER_PARAM_HIGH_CLOUDS,
+    WEATHER_PARAM_HUMIDITY,
+    WEATHER_PARAM_LOW_CLOUDS,
+    WEATHER_PARAM_MEDIUM_CLOUDS,
+    WEATHER_PARAM_PRECIPITATION,
+    WEATHER_PARAM_PRESSURE,
+    WEATHER_PARAM_SYMBOL,
+    WEATHER_PARAM_TEMPERATURE,
+    WEATHER_PARAM_WIND_DIRECTION,
+    WEATHER_PARAM_WIND_GUST,
+    WEATHER_PARAM_WIND_SPEED,
+]
+
+
 DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/1.9/"
 EARTH_RADIUS = 6371 * 1000  # earth radius
 
@@ -97,6 +131,14 @@ class MetWeatherData:
             return False
         return True
 
+    def get_current_param(self, param):
+        """Get the current weather data param from met.no."""
+        if param not in WEATHER_PARAMS:
+            return None
+        ordered_entries = self._get_ordered_entries(pytz.utc)
+
+        return get_data(param, ordered_entries)
+
     def get_current_weather(self):
         """Get the current weather data from met.no."""
         return self.get_weather(datetime.datetime.now(pytz.utc))
@@ -117,6 +159,18 @@ class MetWeatherData:
         if self.data is None:
             return {}
 
+        ordered_entries = self._get_ordered_entries(time, max_hour)
+        res = dict()
+        res["datetime"] = time
+        res["temperature"] = get_data("temperature", ordered_entries)
+        res["condition"] = CONDITIONS.get(get_data("symbol", ordered_entries))
+        res["pressure"] = get_data("pressure", ordered_entries)
+        res["humidity"] = get_data("humidity", ordered_entries)
+        res["wind_speed"] = get_data("windSpeed", ordered_entries)
+        res["wind_bearing"] = get_data("windDirection", ordered_entries)
+        return res
+
+    def _get_ordered_entries(self, time, max_hour=6):
         ordered_entries = []
         for time_entry in self.data["product"]["time"]:
             valid_from = parse_datetime(time_entry["@from"])
@@ -137,15 +191,7 @@ class MetWeatherData:
         if not ordered_entries:
             return {}
         ordered_entries.sort(key=lambda item: item[0])
-        res = dict()
-        res["datetime"] = time
-        res["temperature"] = get_data("temperature", ordered_entries)
-        res["condition"] = CONDITIONS.get(get_data("symbol", ordered_entries))
-        res["pressure"] = get_data("pressure", ordered_entries)
-        res["humidity"] = get_data("humidity", ordered_entries)
-        res["wind_speed"] = get_data("windSpeed", ordered_entries)
-        res["wind_bearing"] = get_data("windDirection", ordered_entries)
-        return res
+        return ordered_entries
 
 
 def get_data(param, data):
