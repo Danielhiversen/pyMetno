@@ -101,18 +101,24 @@ class MetWeatherData:
         """Get the current weather data from met.no."""
         return self.get_weather(datetime.datetime.now(pytz.utc))
 
-    def get_forecast(self, time_zone):
+    def get_forecast(self, time_zone, hourly=False):
         """Get the forecast weather data from met.no."""
         if self.data is None:
             return []
 
-        now = datetime.datetime.now(time_zone).replace(
-            hour=12, minute=0, second=0, microsecond=0
-        )
-        times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
-        return [self.get_weather(_time) for _time in times]
+        if hourly:
+            now = datetime.datetime.now(time_zone).replace(
+                minute=0, second=0, microsecond=0
+            )
+            times = [now + datetime.timedelta(hours=k) for k in range(1, 25)]
+        else:
+            now = datetime.datetime.now(time_zone).replace(
+                hour=12, minute=0, second=0, microsecond=0
+            )
+            times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
+        return [self.get_weather(_time, hourly=hourly) for _time in times]
 
-    def get_weather(self, time, max_hour=6):
+    def get_weather(self, time, max_hour=6, hourly=False):
         """Get the current weather data from met.no."""
         if self.data is None:
             return {}
@@ -145,6 +151,9 @@ class MetWeatherData:
         res["humidity"] = get_data("humidity", ordered_entries)
         res["wind_speed"] = get_data("windSpeed", ordered_entries)
         res["wind_bearing"] = get_data("windDirection", ordered_entries)
+        if hourly:
+            res["precipitation"] = get_data("precipitation", ordered_entries)
+            res["cloudiness"] = get_data("cloudiness", ordered_entries)
         return res
 
 
@@ -155,11 +164,9 @@ def get_data(param, data):
             loc_data = selected_time_entry["location"]
             if param not in loc_data:
                 continue
-            if param == "precipitation":
-                new_state = loc_data[param]["@value"]
-            elif param == "symbol":
+            if param == "symbol":
                 new_state = int(float(loc_data[param]["@number"]))
-            elif param in ("temperature", "pressure", "humidity", "dewpointTemperature"):
+            elif param in ("temperature", "pressure", "humidity", "dewpointTemperature", "precipitation"):
                 new_state = round(float(loc_data[param]["@value"]), 1)
             elif param in ("windSpeed", "windGust"):
                 new_state = round(float(loc_data[param]["@mps"]) * 3.6, 1)
