@@ -123,6 +123,11 @@ class MetWeatherData:
         if self.data is None:
             return {}
 
+        day = time.date()
+        daily_temperatures = []
+        daily_precipitation = []
+        daily_windSpeed = []
+        daily_windGust = []
         ordered_entries = []
         for time_entry in self.data["product"]["time"]:
             valid_from = parse_datetime(time_entry["@from"])
@@ -130,6 +135,26 @@ class MetWeatherData:
             if time > valid_to:
                 # Has already passed. Never select this.
                 continue
+
+            # Collect all daily values to calculate min/max/sum
+            if valid_from.date() == day or valid_to.date() == day:
+                
+                if "temperature" in time_entry["location"]:
+                    daily_temperatures.append(
+                        float(time_entry["location"]["temperature"]["@value"])
+                    )
+                if "precipitation" in time_entry["location"]:
+                    daily_precipitation.append(
+                        float(time_entry["location"]["precipitation"]["@value"])
+                    )
+                if "windSpeed" in time_entry["location"]:
+                    daily_windSpeed.append(
+                        float(time_entry["location"]["windSpeed"]["@mps"])
+                    )
+                if "windGust" in time_entry["location"]:
+                    daily_windGust.append(
+                        float(time_entry["location"]["windGust"]["@mps"])
+                    )
 
             average_dist = abs((valid_to - time).total_seconds()) + abs(
                 (valid_from - time).total_seconds()
@@ -145,15 +170,32 @@ class MetWeatherData:
         ordered_entries.sort(key=lambda item: item[0])
         res = dict()
         res["datetime"] = time
-        res["temperature"] = get_data("temperature", ordered_entries)
         res["condition"] = CONDITIONS.get(get_data("symbol", ordered_entries))
         res["pressure"] = get_data("pressure", ordered_entries)
         res["humidity"] = get_data("humidity", ordered_entries)
-        res["wind_speed"] = get_data("windSpeed", ordered_entries)
         res["wind_bearing"] = get_data("windDirection", ordered_entries)
         if hourly:
+            res["temperature"] = get_data("temperature", ordered_entries)
             res["precipitation"] = get_data("precipitation", ordered_entries)
+            res["wind_speed"] = get_data("windSpeed", ordered_entries)
+            res["wind_gust"] = get_data("windGust", ordered_entries)
             res["cloudiness"] = get_data("cloudiness", ordered_entries)
+        else:
+            res["temperature"] = (
+                None if daily_temperatures == [] else max(daily_temperatures)
+            )
+            res["templow"] = (
+                None if daily_temperatures == [] else min(daily_temperatures)
+            )
+            res["precipitation"] = (
+                None if daily_precipitation == [] else sum(daily_precipitation)
+            )
+            res["wind_speed"] = (
+                None if daily_windSpeed == [] else max(daily_windSpeed)
+            )
+            res["wind_gust"] = (
+                None if daily_windSpeed == [] else max(daily_windGust)
+            )
         return res
 
 
@@ -166,13 +208,25 @@ def get_data(param, data):
                 continue
             if param == "symbol":
                 new_state = int(float(loc_data[param]["@number"]))
-            elif param in ("temperature", "pressure", "humidity", "dewpointTemperature", "precipitation"):
+            elif param in (
+                "temperature",
+                "pressure",
+                "humidity",
+                "dewpointTemperature",
+                "precipitation",
+            ):
                 new_state = round(float(loc_data[param]["@value"]), 1)
             elif param in ("windSpeed", "windGust"):
                 new_state = round(float(loc_data[param]["@mps"]) * 3.6, 1)
             elif param == "windDirection":
                 new_state = round(float(loc_data[param]["@deg"]), 1)
-            elif param in ("fog", "cloudiness", "lowClouds", "mediumClouds", "highClouds"):
+            elif param in (
+                "fog",
+                "cloudiness",
+                "lowClouds",
+                "mediumClouds",
+                "highClouds",
+            ):
                 new_state = round(float(loc_data[param]["@percent"]), 1)
             return new_state
     except (ValueError, IndexError, KeyError):
