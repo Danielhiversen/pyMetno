@@ -83,7 +83,7 @@ class MetWeatherData:
         try:
             with async_timeout.timeout(10):
                 resp = await self._websession.get(self._api_url, params=self._urlparams)
-            if resp.status != 200:
+            if resp.status >= 400:
                 _LOGGER.error("%s returned %s", self._api_url, resp.status)
                 return False
             text = await resp.text()
@@ -197,7 +197,7 @@ class AirQualityData:
                     resp = await self._websession.get(
                         self._api_url, params=self._urlparams
                     )
-                if resp.status != 200:
+                if resp.status >= 400:
                     _LOGGER.error("%s returned %s", self._api_url, resp.status)
                     return False
                 self._data = await resp.json()
@@ -289,7 +289,7 @@ class LightningData:
         try:
             with async_timeout.timeout(10):
                 resp = await self._websession.get(self._api_url)
-            if resp.status != 200:
+            if resp.status >= 400:
                 _LOGGER.error("%s returned %s", self._api_url, resp.status)
                 return []
             data = await resp.text()
