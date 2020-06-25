@@ -195,7 +195,7 @@ class MetWeatherData:
                 None if daily_windspeed == [] else max(daily_windspeed)
             )
             res["wind_gust"] = (
-                None if daily_windspeed == [] else max(daily_windgust)
+                None if daily_windgust == [] else max(daily_windgust)
             )
         return res
 
