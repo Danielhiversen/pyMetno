@@ -4,7 +4,7 @@ setup(
     name = 'PyMetno',
     packages = ['metno'],
     install_requires=['xmltodict', 'aiohttp', 'async_timeout', 'pytz'],
-    version = '0.6.1',
+    version = '0.6.2',
     description = 'A library to communicate with the met.no api',
     author='Daniel Hoyer Iversen',
     url='https://github.com/Danielhiversen/pyMetno/',
