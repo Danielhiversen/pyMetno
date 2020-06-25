@@ -120,14 +120,15 @@ class MetWeatherData:
 
     def get_weather(self, time, max_hour=6, hourly=False):
         """Get the current weather data from met.no."""
+        # pylint: disable=too-many-locals
         if self.data is None:
             return {}
 
         day = time.date()
         daily_temperatures = []
         daily_precipitation = []
-        daily_windSpeed = []
-        daily_windGust = []
+        daily_windspeed = []
+        daily_windgust = []
         ordered_entries = []
         for time_entry in self.data["product"]["time"]:
             valid_from = parse_datetime(time_entry["@from"])
@@ -138,7 +139,7 @@ class MetWeatherData:
 
             # Collect all daily values to calculate min/max/sum
             if valid_from.date() == day or valid_to.date() == day:
-                
+
                 if "temperature" in time_entry["location"]:
                     daily_temperatures.append(
                         float(time_entry["location"]["temperature"]["@value"])
@@ -148,11 +149,11 @@ class MetWeatherData:
                         float(time_entry["location"]["precipitation"]["@value"])
                     )
                 if "windSpeed" in time_entry["location"]:
-                    daily_windSpeed.append(
+                    daily_windspeed.append(
                         float(time_entry["location"]["windSpeed"]["@mps"])
                     )
                 if "windGust" in time_entry["location"]:
-                    daily_windGust.append(
+                    daily_windgust.append(
                         float(time_entry["location"]["windGust"]["@mps"])
                     )
 
@@ -191,10 +192,10 @@ class MetWeatherData:
                 None if daily_precipitation == [] else sum(daily_precipitation)
             )
             res["wind_speed"] = (
-                None if daily_windSpeed == [] else max(daily_windSpeed)
+                None if daily_windspeed == [] else max(daily_windspeed)
             )
             res["wind_gust"] = (
-                None if daily_windSpeed == [] else max(daily_windGust)
+                None if daily_windspeed == [] else max(daily_windgust)
             )
         return res
 
@@ -209,11 +210,11 @@ def get_data(param, data):
             if param == "symbol":
                 new_state = int(float(loc_data[param]["@number"]))
             elif param in (
-                "temperature",
-                "pressure",
-                "humidity",
-                "dewpointTemperature",
-                "precipitation",
+                    "temperature",
+                    "pressure",
+                    "humidity",
+                    "dewpointTemperature",
+                    "precipitation",
             ):
                 new_state = round(float(loc_data[param]["@value"]), 1)
             elif param in ("windSpeed", "windGust"):
@@ -221,11 +222,11 @@ def get_data(param, data):
             elif param == "windDirection":
                 new_state = round(float(loc_data[param]["@deg"]), 1)
             elif param in (
-                "fog",
-                "cloudiness",
-                "lowClouds",
-                "mediumClouds",
-                "highClouds",
+                    "fog",
+                    "cloudiness",
+                    "lowClouds",
+                    "mediumClouds",
+                    "highClouds",
             ):
                 new_state = round(float(loc_data[param]["@percent"]), 1)
             return new_state
