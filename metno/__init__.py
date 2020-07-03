@@ -142,19 +142,19 @@ class MetWeatherData:
 
                 if "temperature" in time_entry["location"]:
                     daily_temperatures.append(
-                        float(time_entry["location"]["temperature"]["@value"])
+                        get_value(time_entry["location"]["temperature"], "@value")
                     )
                 if "precipitation" in time_entry["location"]:
                     daily_precipitation.append(
-                        float(time_entry["location"]["precipitation"]["@value"])
+                        get_value(time_entry["location"]["precipitation"], "@value")
                     )
                 if "windSpeed" in time_entry["location"]:
                     daily_windspeed.append(
-                        float(time_entry["location"]["windSpeed"]["@mps"])
+                        get_value(time_entry["location"]["windSpeed"], "@mps")
                     )
                 if "windGust" in time_entry["location"]:
                     daily_windgust.append(
-                        float(time_entry["location"]["windGust"]["@mps"])
+                        get_value(time_entry["location"]["windGust"], "@mps")
                     )
 
             average_dist = abs((valid_to - time).total_seconds()) + abs(
@@ -199,6 +199,14 @@ class MetWeatherData:
             )
         return res
 
+def get_value(data, value):
+    try:
+        if value == "@mps":
+            return round(float(data[value]) * 3.6, 1)
+        else:
+            return round(float(data[value]), 1)
+    except (ValueError, IndexError, KeyError):
+        return None
 
 def get_data(param, data):
     """Retrieve weather parameter."""
@@ -216,11 +224,11 @@ def get_data(param, data):
                     "dewpointTemperature",
                     "precipitation",
             ):
-                new_state = round(float(loc_data[param]["@value"]), 1)
+                new_state = get_value(loc_data[param], "@value")
             elif param in ("windSpeed", "windGust"):
-                new_state = round(float(loc_data[param]["@mps"]) * 3.6, 1)
+                new_state = get_value(loc_data[param], "@mps")
             elif param == "windDirection":
-                new_state = round(float(loc_data[param]["@deg"]), 1)
+                new_state = get_value(loc_data[param], "@deg")
             elif param in (
                     "fog",
                     "cloudiness",
@@ -228,7 +236,7 @@ def get_data(param, data):
                     "mediumClouds",
                     "highClouds",
             ):
-                new_state = round(float(loc_data[param]["@percent"]), 1)
+                new_state = get_value(loc_data[param], "@percent")
             return new_state
     except (ValueError, IndexError, KeyError):
         return None
