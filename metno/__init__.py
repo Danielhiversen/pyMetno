@@ -199,14 +199,16 @@ class MetWeatherData:
             )
         return res
 
+
 def get_value(data, value):
+    """Retrieve weather value."""
     try:
         if value == "@mps":
             return round(float(data[value]) * 3.6, 1)
-        else:
-            return round(float(data[value]), 1)
+        return round(float(data[value]), 1)
     except (ValueError, IndexError, KeyError):
         return None
+
 
 def get_data(param, data):
     """Retrieve weather parameter."""
