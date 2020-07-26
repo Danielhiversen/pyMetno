@@ -54,7 +54,8 @@ CONDITIONS = {
     49: "snowy",
     50: "snowy",
 }
-DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/1.9/"
+DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/2.0/classic"
+
 EARTH_RADIUS = 6371 * 1000  # earth radius
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,6 +66,10 @@ class MetWeatherData:
 
     def __init__(self, urlparams, websession=None, api_url=DEFAULT_API_URL):
         """Initialize the Weather object."""
+        urlparams = {"lat": str(round(float(urlparams['lat']), 4)),
+                     "lon": str(round(float(urlparams['lon']), 4)),
+                     "altitude": str(int(float(urlparams.get('altitude', urlparams.get('msl', 0))))),
+                     }
         self._urlparams = urlparams
         self._api_url = api_url
         if websession is None:
