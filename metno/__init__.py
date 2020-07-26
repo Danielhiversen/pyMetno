@@ -2,7 +2,6 @@
 import asyncio
 import datetime
 import logging
-import math
 from xml.parsers.expat import ExpatError
 
 import aiohttp
