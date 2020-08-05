@@ -6,7 +6,7 @@ setup(
     install_requires=['xmltodict', 'aiohttp', 'async_timeout', 'pytz'],
     version = '0.7.0',
     description = 'A library to communicate with the met.no api',
-    author='Daniel Hoyer Iversen',
+    author='Daniel Hoyer',
     url='https://github.com/Danielhiversen/pyMetno/',
     classifiers=[
         'Development Status :: 3 - Alpha',
