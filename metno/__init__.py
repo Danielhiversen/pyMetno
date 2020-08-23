@@ -177,7 +177,7 @@ class MetWeatherData:
         ordered_entries.sort(key=lambda item: item[0])
         entries = [e[1] for e in ordered_entries]
         res = dict()
-        res["datetime"] = time
+        res["datetime"] = time.astimezone(tz=pytz.utc).isoformat()
         res["condition"] = CONDITIONS.get(get_data("symbol_code", entries))
         res["pressure"] = get_data("air_pressure_at_sea_level", entries)
         res["humidity"] = get_data("relative_humidity", entries)
