@@ -2,7 +2,6 @@
 import asyncio
 import datetime
 import logging
-import math
 from xml.parsers.expat import ExpatError
 
 import aiohttp
@@ -194,7 +193,7 @@ class MetWeatherData:
                 None if daily_temperatures == [] else min(daily_temperatures)
             )
             res["precipitation"] = (
-                None if daily_precipitation == [] else math.fsum(daily_precipitation)
+                None if daily_precipitation == [] else round(sum(daily_precipitation), 1)
             )
             res["wind_speed"] = (
                 None if daily_windspeed == [] else max(daily_windspeed)
