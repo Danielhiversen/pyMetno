@@ -111,7 +111,12 @@ class MetWeatherData:
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""
-        return self.get_weather(datetime.datetime.now(pytz.utc), hourly=True)
+        timeseries = self.data["properties"]["timeseries"]
+        if timeseries:
+            now = parse_datetime(timeseries[0]["time"])
+        else:
+            now = datetime.datetime.now(pytz.utc)
+        return self.get_weather(now, hourly=True)
 
     def get_forecast(self, time_zone, hourly=False):
         """Get the forecast weather data from met.no."""
@@ -143,7 +148,8 @@ class MetWeatherData:
         daily_precipitation_probability = []
         daily_windspeed = []
         daily_windgust = []
-        ordered_entries = []
+        entries = []
+
         for time_entry in self.data["properties"]["timeseries"]:
             timestamp = parse_datetime(time_entry["time"]).astimezone()
             if timestamp.date() != day:
@@ -167,15 +173,11 @@ class MetWeatherData:
             if precipitation_probability is not None:
                 daily_precipitation_probability.append(precipitation_probability)
 
-            average_dist = abs((timestamp - time).total_seconds())
-
             if time.astimezone() <= timestamp:
-                ordered_entries.append((average_dist, time_entry))
+                entries.append(time_entry)
 
-        if not ordered_entries:
+        if not entries:
             return {}
-        ordered_entries.sort(key=lambda item: item[0])
-        entries = [e[1] for e in ordered_entries]
         res = dict()
         res["datetime"] = time.astimezone(tz=pytz.utc).isoformat()
         res["condition"] = CONDITIONS.get(get_data("symbol_code", entries))
