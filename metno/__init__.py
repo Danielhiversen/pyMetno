@@ -2,60 +2,70 @@
 import asyncio
 import datetime
 import logging
-from xml.parsers.expat import ExpatError
+
+from typing import Any, List
 
 import aiohttp
 import async_timeout
 import pytz
-import xmltodict
 
 # https://api.met.no/weatherapi/weathericon/_/documentation/#___top
 CONDITIONS = {
-    1: "sunny",
-    2: "partlycloudy",
-    3: "partlycloudy",
-    4: "cloudy",
-    5: "rainy",
-    6: "lightning-rainy",
-    7: "snowy-rainy",
-    8: "snowy",
-    9: "rainy",
-    10: "rainy",
-    11: "lightning-rainy",
-    12: "snowy-rainy",
-    13: "snowy",
-    14: "snowy",
-    15: "fog",
-    20: "lightning-rainy",
-    21: "lightning-rainy",
-    22: "lightning-rainy",
-    23: "lightning-rainy",
-    24: "lightning-rainy",
-    25: "lightning-rainy",
-    26: "lightning-rainy",
-    27: "lightning-rainy",
-    28: "lightning-rainy",
-    29: "lightning-rainy",
-    30: "lightning-rainy",
-    31: "lightning-rainy",
-    32: "lightning-rainy",
-    33: "lightning-rainy",
-    34: "lightning-rainy",
-    40: "rainy",
-    41: "rainy",
-    42: "snowy-rainy",
-    43: "snowy-rainy",
-    44: "snowy",
-    45: "snowy",
-    46: "rainy",
-    47: "snowy-rainy",
-    48: "snowy-rainy",
-    49: "snowy",
-    50: "snowy",
+    "clearsky": "sunny",
+    "clearsky_night": "clear-night",
+    "cloudy": "cloudy",
+    "fair": "partlycloudy",
+    "fog": "fog",
+    "heavyrain": "rainy",
+    "heavyrainandthunder": "lightning-rainy",
+    "heavyrainshowers": "rainy",
+    "heavyrainshowersandthunder": "lightning-rainy",
+    "heavysleet": "snowy-rainy",
+    "heavysleetandthunder": "lightning-rainy",
+    "heavysleetshowers": "snowy-rainy",
+    "heavysleetshowersandthunder": "lightning-rainy",
+    "heavysnow": "snowy",
+    "heavysnowandthunder": "lightning-rainy",
+    "heavysnowshowers": "snowy",
+    "heavysnowshowersandthunder": "lightning-rainy",
+    "lightrain": "rainy",
+    "lightrainandthunder": "lightning-rainy",
+    "lightrainshowers": "rainy",
+    "lightrainshowersandthunder": "lightning-rainy",
+    "lightsleet": "snowy-rainy",
+    "lightsleetandthunder": "lightning-rainy",
+    "lightsleetshowers": "snowy-rainy",
+    "lightsnow": "snowy",
+    "lightsnowandthunder": "lightning-rainy",
+    "lightsnowshowers": "snowy",
+    "lightssleetshowersandthunder": "lightning-rainy",
+    "lightssnowshowersandthunder": "lightning-rainy",
+    "partlycloudy": "partlycloudy",
+    "rain": "rainy",
+    "rainandthunder": "lightning-rainy",
+    "rainshowers": "rainy",
+    "rainshowersandthunder": "lightning-rainy",
+    "sleet": "snowy-rainy",
+    "sleetandthunder": "lightning-rainy",
+    "sleetshowers": "snowy-rainy",
+    "sleetshowersandthunder": "lightning-rainy",
+    "snow": "snowy",
+    "snowandthunder": "snowy",
+    "snowshowers": "snowy",
+    "snowshowersandthunder": "lightning-rainy",
 }
-DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/2.0/classic"
 
-EARTH_RADIUS = 6371 * 1000  # earth radius
+# Most conditions may have the suffix "_day" or "_night". Updating CONDITIONS to
+# include them.
+_VARIATIONS = {}
+for key, value in CONDITIONS.items():
+    if not key.endswith(("_day", "_night")):
+        _VARIATIONS[key + "_day"] = value
+        _VARIATIONS[key + "_night"] = value
+CONDITIONS.update(_VARIATIONS)
+del _VARIATIONS
+
+DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,20 +100,23 @@ class MetWeatherData:
             if resp.status >= 400:
                 _LOGGER.error("%s returned %s", self._api_url, resp.status)
                 return False
-            text = await resp.text()
+            self.data = await resp.json()
         except (asyncio.TimeoutError, aiohttp.ClientError) as err:
             _LOGGER.error("%s returned %s", self._api_url, err)
             return False
-        try:
-            self.data = xmltodict.parse(text)["weatherdata"]
-        except (ExpatError, IndexError) as err:
-            _LOGGER.error("%s returned %s", resp.url, err)
+        except ValueError:
+            _LOGGER.exception("Unable to parse json response from %s", self._api_url)
             return False
         return True
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""
-        return self.get_weather(datetime.datetime.now(pytz.utc))
+        timeseries = self.data["properties"]["timeseries"]
+        if timeseries:
+            now = parse_datetime(timeseries[0]["time"])
+        else:
+            now = datetime.datetime.now(pytz.utc)
+        return self.get_weather(now, hourly=True)
 
     def get_forecast(self, time_zone, hourly=False):
         """Get the forecast weather data from met.no."""
@@ -122,69 +135,62 @@ class MetWeatherData:
             times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
         return [self.get_weather(_time, hourly=hourly) for _time in times]
 
-    def get_weather(self, time, max_hour=6, hourly=False):
+    def get_weather(self, time, hourly=False):
         """Get the current weather data from met.no."""
         # pylint: disable=too-many-locals
+        # pylint: disable=too-many-statements
         if self.data is None:
             return {}
 
-        day = time.date()
+        day = time.astimezone().date()
         daily_temperatures = []
         daily_precipitation = []
+        daily_precipitation_probability = []
         daily_windspeed = []
         daily_windgust = []
-        ordered_entries = []
-        for time_entry in self.data["product"]["time"]:
-            valid_from = parse_datetime(time_entry["@from"])
-            valid_to = parse_datetime(time_entry["@to"])
-            if time > valid_to:
-                # Has already passed. Never select this.
+        entries = []
+
+        for time_entry in self.data["properties"]["timeseries"]:
+            timestamp = parse_datetime(time_entry["time"]).astimezone()
+            if timestamp.date() != day:
+                # Only get time window for current day
                 continue
 
             # Collect all daily values to calculate min/max/sum
-            if valid_from.date() == day or valid_to.date() == day:
+            temperature = get_data("air_temperature", [time_entry])
+            if temperature is not None:
+                daily_temperatures.append(temperature)
+            wind_speed = get_data("wind_speed", [time_entry])
+            if wind_speed is not None:
+                daily_windspeed.append(wind_speed)
+            wind_speed_gust = get_data("wind_speed_of_gust", [time_entry])
+            if wind_speed_gust is not None:
+                daily_windgust.append(wind_speed_gust)
+            precipitation = get_data("precipitation_amount", [time_entry])
+            if precipitation is not None:
+                daily_precipitation.append(precipitation)
+            precipitation_probability = get_data("probability_of_precipitation", [time_entry])
+            if precipitation_probability is not None:
+                daily_precipitation_probability.append(precipitation_probability)
 
-                if "temperature" in time_entry["location"]:
-                    daily_temperatures.append(
-                        get_value(time_entry["location"]["temperature"], "@value")
-                    )
-                if "precipitation" in time_entry["location"]:
-                    daily_precipitation.append(
-                        get_value(time_entry["location"]["precipitation"], "@value")
-                    )
-                if "windSpeed" in time_entry["location"]:
-                    daily_windspeed.append(
-                        get_value(time_entry["location"]["windSpeed"], "@mps")
-                    )
-                if "windGust" in time_entry["location"]:
-                    daily_windgust.append(
-                        get_value(time_entry["location"]["windGust"], "@mps")
-                    )
+            if time.astimezone() <= timestamp:
+                entries.append(time_entry)
 
-            average_dist = abs((valid_to - time).total_seconds()) + abs(
-                (valid_from - time).total_seconds()
-            )
-
-            if average_dist > max_hour * 3600:
-                continue
-
-            ordered_entries.append((average_dist, time_entry))
-
-        if not ordered_entries:
+        if not entries:
             return {}
-        ordered_entries.sort(key=lambda item: item[0])
         res = dict()
-        res["datetime"] = time
-        res["condition"] = CONDITIONS.get(get_data("symbol", ordered_entries))
-        res["pressure"] = get_data("pressure", ordered_entries)
-        res["humidity"] = get_data("humidity", ordered_entries)
-        res["wind_bearing"] = get_data("windDirection", ordered_entries)
+        res["datetime"] = time.astimezone(tz=pytz.utc).isoformat()
+        res["condition"] = CONDITIONS.get(get_data("symbol_code", entries))
+        res["pressure"] = get_data("air_pressure_at_sea_level", entries)
+        res["humidity"] = get_data("relative_humidity", entries)
+        res["wind_bearing"] = get_data("wind_from_direction", entries)
         if hourly:
-            res["temperature"] = get_data("temperature", ordered_entries)
-            res["precipitation"] = get_data("precipitation", ordered_entries)
-            res["wind_speed"] = get_data("windSpeed", ordered_entries)
-            res["wind_gust"] = get_data("windGust", ordered_entries)
-            res["cloudiness"] = get_data("cloudiness", ordered_entries)
+            res["temperature"] = get_data("air_temperature", entries)
+            res["precipitation"] = get_data("precipitation_amount", entries)
+            res["precipitation_probability"] = get_data("probability_of_precipitation", entries)
+            res["wind_speed"] = get_data("wind_speed", entries)
+            res["wind_gust"] = get_data("wind_speed_of_gust", entries)
+            res["cloudiness"] = get_data("cloud_area_fraction", entries)
         else:
             res["temperature"] = (
                 None if daily_temperatures == [] else max(daily_temperatures)
@@ -195,6 +201,9 @@ class MetWeatherData:
             res["precipitation"] = (
                 None if daily_precipitation == [] else round(sum(daily_precipitation), 1)
             )
+            res["precipitation_probability"] = (
+                None if daily_precipitation_probability == [] else max(daily_precipitation_probability)
+            )
             res["wind_speed"] = (
                 None if daily_windspeed == [] else max(daily_windspeed)
             )
@@ -204,45 +213,63 @@ class MetWeatherData:
         return res
 
 
-def get_value(data, value):
-    """Retrieve weather value."""
-    try:
-        if value == "@mps":
-            return round(float(data[value]) * 3.6, 1)
-        return round(float(data[value]), 1)
-    except (ValueError, IndexError, KeyError):
-        return None
-
-
-def get_data(param, data):
+def get_data(param: str, data: List[dict]) -> Any:
     """Retrieve weather parameter."""
     try:
-        for (_, selected_time_entry) in data:
-            loc_data = selected_time_entry["location"]
-            if param not in loc_data:
+        for selected_time_entry in data:
+
+            data = selected_time_entry["data"]
+            instant_details = data["instant"]["details"]
+
+            # Grab the highest resolution entity
+            next_hrs = (
+                    data.get("next_1_hours") or
+                    data.get("next_6_hours") or
+                    data.get("next_12_hours") or
+                    {}
+            )
+            next_hrs_details = next_hrs.get("details") or {}
+            next_hrs_summary = next_hrs.get("summary") or {}
+
+            new_state = None
+
+            if param == "symbol_code":
+                if param not in next_hrs_summary:
+                    continue
+                new_state = next_hrs_summary[param]
+
+            elif param in (
+                    "precipitation_amount",
+                    "precipitation_amount_max",
+                    "precipitation_amount_min",
+                    "probability_of_precipitation",
+                    "probability_of_thunder",
+            ):
+                if param not in next_hrs_details:
+                    continue
+                new_state = next_hrs_details[param]
+
+            elif param not in instant_details:
                 continue
-            if param == "symbol":
-                new_state = int(float(loc_data[param]["@number"]))
             elif param in (
-                    "temperature",
-                    "pressure",
-                    "humidity",
-                    "dewpointTemperature",
-                    "precipitation",
+                    "air_temperature",
+                    "air_pressure_at_sea_level",
+                    "relative_humidity",
+                    "dew_point_temperature",
             ):
-                new_state = get_value(loc_data[param], "@value")
-            elif param in ("windSpeed", "windGust"):
-                new_state = get_value(loc_data[param], "@mps")
-            elif param == "windDirection":
-                new_state = get_value(loc_data[param], "@deg")
+                new_state = instant_details[param]
+            elif param in ("wind_speed", "wind_speed_of_gust"):
+                new_state = round(instant_details[param] * 3.6, 1)
+            elif param == "wind_from_direction":
+                new_state = instant_details[param]
             elif param in (
-                    "fog",
-                    "cloudiness",
-                    "lowClouds",
-                    "mediumClouds",
-                    "highClouds",
+                    "fog_area_fraction",
+                    "cloud_area_fraction",
+                    "cloud_area_fraction_low",
+                    "cloud_area_fraction_medium",
+                    "cloud_area_fraction_high",
             ):
-                new_state = get_value(loc_data[param], "@percent")
+                new_state = instant_details[param]
             return new_state
     except (ValueError, IndexError, KeyError):
         return None
