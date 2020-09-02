@@ -111,10 +111,10 @@ class MetWeatherData:
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""
-        timeseries = self.data["properties"]["timeseries"]
-        if timeseries:
+        try:
+            timeseries = self.data["properties"]["timeseries"]
             now = parse_datetime(timeseries[0]["time"])
-        else:
+        except (TypeError, KeyError, IndexError):
             now = datetime.datetime.now(pytz.utc)
         return self.get_weather(now, hourly=True)
 
