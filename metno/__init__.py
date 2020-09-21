@@ -133,7 +133,8 @@ class MetWeatherData:
                 hour=12, minute=0, second=0, microsecond=0
             )
             times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
-        return [self.get_weather(_time, hourly=hourly) for _time in times]
+        timeseries = [self.get_weather(_time, hourly=hourly) for _time in times]
+        return [t for t in timeseries if t]
 
     def get_weather(self, time, hourly=False):
         """Get the current weather data from met.no."""
