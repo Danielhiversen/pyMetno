@@ -102,7 +102,7 @@ class MetWeatherData:
                 return False
             self.data = await resp.json()
         except (asyncio.TimeoutError, aiohttp.ClientError) as err:
-            _LOGGER.error("%s returned %s", self._api_url, err)
+            _LOGGER.error("Access to %s returned error '%s'", self._api_url, type(err).__name__)
             return False
         except ValueError:
             _LOGGER.exception("Unable to parse json response from %s", self._api_url)
