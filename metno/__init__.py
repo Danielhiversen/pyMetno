@@ -66,6 +66,7 @@ CONDITIONS.update(_VARIATIONS)
 del _VARIATIONS
 
 DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
+TIMEOUT = 30
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class MetWeatherData:
     async def fetching_data(self, *_):
         """Get the latest data from met.no."""
         try:
-            with async_timeout.timeout(10):
+            with async_timeout.timeout(TIMEOUT):
                 resp = await self._websession.get(self._api_url, params=self._urlparams)
             if resp.status >= 400:
                 _LOGGER.error("%s returned %s", self._api_url, resp.status)
