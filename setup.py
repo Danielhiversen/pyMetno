@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name = 'PyMetno',
     packages = ['metno'],
-    install_requires=['xmltodict', 'aiohttp', 'async_timeout', 'pytz'],
+    install_requires=['xmltodict', "aiohttp>=3.0.6", "async_timeout>=3.0.0", 'pytz'],
     version = '0.8.4',
     description = 'A library to communicate with the met.no api',
     author='Daniel Hjelseth Høyer',

@@ -97,7 +97,7 @@ class MetWeatherData:
     async def fetching_data(self, *_):
         """Get the latest data from met.no."""
         try:
-            with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(TIMEOUT):
                 resp = await self._websession.get(self._api_url, params=self._urlparams)
             if resp.status >= 400:
                 _LOGGER.error("%s returned %s", self._api_url, resp.status)
@@ -299,7 +299,7 @@ class AirQualityData:
         """Update data."""
         if self._last_update is None or datetime.datetime.now() - self._last_update > datetime.timedelta(3600):
             try:
-                with async_timeout.timeout(10):
+                async with async_timeout.timeout(10):
                     resp = await self._websession.get(
                         self._api_url, params=self._urlparams
                     )
