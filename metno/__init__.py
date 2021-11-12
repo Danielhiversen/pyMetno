@@ -66,6 +66,7 @@ CONDITIONS.update(_VARIATIONS)
 del _VARIATIONS
 
 DEFAULT_API_URL = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
+DEFAULT_AIRQUALITYFORECAST_API_URL = "https://api.met.no/weatherapi/airqualityforecast/0.1/"
 TIMEOUT = 30
 
 _LOGGER = logging.getLogger(__name__)
@@ -282,13 +283,13 @@ class AirQualityData:
 
     # pylint: disable=too-many-instance-attributes, too-few-public-methods
 
-    def __init__(self, coordinates, forecast, websession):
+    def __init__(self, coordinates, forecast, websession, api_url=DEFAULT_AIRQUALITYFORECAST_API_URL):
         """Initialize the Air quality object."""
         self._urlparams = coordinates
         self._urlparams["areaclass"] = "grunnkrets"
         self._forecast = forecast
         self._websession = websession
-        self._api_url = "https://api.met.no/weatherapi/airqualityforecast/0.1/"
+        self._api_url = api_url
         self.data = dict()
         self.units = dict()
         self._last_update = None
