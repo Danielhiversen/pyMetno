@@ -120,21 +120,25 @@ class MetWeatherData:
             now = datetime.datetime.now(pytz.utc)
         return self.get_weather(now, hourly=True)
 
-    def get_forecast(self, time_zone, hourly=False):
+    def get_forecast(self, time_zone, hourly=False, range_start=1, range_stop=None):
         """Get the forecast weather data from met.no."""
         if self.data is None:
             return []
 
         if hourly:
+            if(range_stop is None):
+                range_stop = 25
             now = datetime.datetime.now(time_zone).replace(
                 minute=0, second=0, microsecond=0
             )
-            times = [now + datetime.timedelta(hours=k) for k in range(1, 25)]
+            times = [now + datetime.timedelta(hours=k) for k in range(range_start, range_stop)]
         else:
+            if(range_stop is None):
+                range_stop = 6
             now = datetime.datetime.now(time_zone).replace(
                 hour=12, minute=0, second=0, microsecond=0
             )
-            times = [now + datetime.timedelta(days=k) for k in range(1, 6)]
+            times = [now + datetime.timedelta(days=k) for k in range(range_start, range_stop)]
         timeseries = [self.get_weather(_time, hourly=hourly) for _time in times]
         return [t for t in timeseries if t]
 
