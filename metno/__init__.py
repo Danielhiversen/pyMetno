@@ -155,6 +155,7 @@ class MetWeatherData:
         daily_precipitation_probability = []
         daily_windspeed = []
         daily_windgust = []
+        daily_dew_point = []
         entries = []
 
         for time_entry in self.data["properties"]["timeseries"]:
@@ -179,6 +180,9 @@ class MetWeatherData:
             precipitation_probability = get_data("probability_of_precipitation", [time_entry])
             if precipitation_probability is not None:
                 daily_precipitation_probability.append(precipitation_probability)
+            dew_point = get_data("dew_point_temperature", [time_entry])
+            if dew_point is not None:
+                daily_dew_point.append(dew_point)
 
             if time.astimezone() <= timestamp:
                 entries.append(time_entry)
@@ -198,6 +202,7 @@ class MetWeatherData:
             res["wind_speed"] = get_data("wind_speed", entries)
             res["wind_gust"] = get_data("wind_speed_of_gust", entries)
             res["cloudiness"] = get_data("cloud_area_fraction", entries)
+            res["dew_point"] = get_data("dew_point_temperature", entries)
         else:
             res["temperature"] = (
                 None if daily_temperatures == [] else max(daily_temperatures)
@@ -217,6 +222,10 @@ class MetWeatherData:
             res["wind_gust"] = (
                 None if daily_windgust == [] else max(daily_windgust)
             )
+            res["dew_point"] = (
+                None if daily_dew_point == [] else max(daily_dew_point)
+            )
+
         return res
 
 
