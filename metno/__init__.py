@@ -7,7 +7,6 @@ from typing import Any, List
 
 import aiohttp
 import async_timeout
-import pytz
 
 # https://api.met.no/weatherapi/weathericon/_/documentation/#___top
 CONDITIONS = {
@@ -117,7 +116,7 @@ class MetWeatherData:
             timeseries = self.data["properties"]["timeseries"]
             now = parse_datetime(timeseries[0]["time"])
         except (TypeError, KeyError, IndexError):
-            now = datetime.datetime.now(pytz.utc)
+            now = datetime.datetime.now(datetime.timezone.utc)
         return self.get_weather(now, hourly=True)
 
     def get_forecast(self, time_zone, hourly=False, range_start=1, range_stop=None):
@@ -190,7 +189,7 @@ class MetWeatherData:
         if not entries:
             return {}
         res = dict()
-        res["datetime"] = time.astimezone(tz=pytz.utc).isoformat()
+        res["datetime"] = time.astimezone(tz=datetime.timezone.utc).isoformat()
         res["condition"] = CONDITIONS.get(get_data("symbol_code", entries))
         res["pressure"] = get_data("air_pressure_at_sea_level", entries)
         res["humidity"] = get_data("relative_humidity", entries)
@@ -324,7 +323,7 @@ class AirQualityData:
                 _LOGGER.error("%s returned %s", self._api_url, err)
                 return False
         try:
-            forecast_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(
+            forecast_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
                 hours=self._forecast
             )
 

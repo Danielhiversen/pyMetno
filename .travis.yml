@@ -8,7 +8,7 @@ cache:
   directories:
   - "$HOME/.cache/pip"
 install:
-- pip install flake8 pylint xmltodict aiohttp async_timeout pytz
+- pip install flake8 pylint xmltodict aiohttp async_timeout
 language: python
 script:
 - flake8 metno --max-line-length=120
