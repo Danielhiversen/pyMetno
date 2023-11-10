@@ -59,8 +59,15 @@ CONDITIONS = {
 # include them.
 _VARIATIONS = {}
 for key, value in CONDITIONS.items():
-    if not key.endswith(("_day", "_night")):
+    # ignore keys with values specific for night or day
+    # their values may be night or day specific
+    if key.endswith("_day") or key.endswith("_night"):
+        continue
+    
+    # don't overwrite existing day or night conditions 
+    if not key + "_day" in CONDITIONS:
         _VARIATIONS[key + "_day"] = value
+    if not key + "_night" in CONDITIONS:
         _VARIATIONS[key + "_night"] = value
 CONDITIONS.update(_VARIATIONS)
 del _VARIATIONS
