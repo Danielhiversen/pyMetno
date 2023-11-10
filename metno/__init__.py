@@ -8,6 +8,11 @@ from typing import Any, List
 import aiohttp
 import async_timeout
 
+try:
+    import ciso8601
+except ImportError:
+    ciso8601 = None
+
 # https://api.met.no/weatherapi/weathericon/_/documentation/#___top
 CONDITIONS = {
     "clearsky": "sunny",
@@ -399,8 +404,16 @@ class AirQualityData:
         return True
 
 
-def parse_datetime(dt_str):
+
+
+
+def parse_datetime(dt_str: str) -> datetime.datetime:
     """Parse datetime."""
+    if ciso8601:
+        try:
+            return ciso8601.parse_datetime(dt_str)
+        except ValueError:
+            pass
     date_format = "%Y-%m-%dT%H:%M:%S %z"
     dt_str = dt_str.replace("Z", " +0000")
     return datetime.datetime.strptime(dt_str, date_format)
