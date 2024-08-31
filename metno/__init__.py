@@ -167,6 +167,7 @@ class MetWeatherData:
         daily_windspeed = []
         daily_windgust = []
         daily_dew_point = []
+        daily_uv_index = []
         entries = []
 
         for time_entry in self.data["properties"]["timeseries"]:
@@ -194,6 +195,9 @@ class MetWeatherData:
             dew_point = get_data("dew_point_temperature", [time_entry])
             if dew_point is not None:
                 daily_dew_point.append(dew_point)
+            uv_index = get_data("ultraviolet_index_clear_sky", [time_entry])
+            if uv_index is not None:
+                daily_uv_index.append(uv_index)
 
             if time.astimezone() <= timestamp:
                 entries.append(time_entry)
@@ -214,6 +218,7 @@ class MetWeatherData:
             res["wind_gust"] = get_data("wind_speed_of_gust", entries)
             res["cloudiness"] = get_data("cloud_area_fraction", entries)
             res["dew_point"] = get_data("dew_point_temperature", entries)
+            res["uv_index"] = get_data("ultraviolet_index_clear_sky", entries)
         else:
             res["temperature"] = (
                 None if daily_temperatures == [] else max(daily_temperatures)
@@ -235,6 +240,9 @@ class MetWeatherData:
             )
             res["dew_point"] = (
                 None if daily_dew_point == [] else max(daily_dew_point)
+            )
+            res["uv_index"] = (
+                None if daily_uv_index == [] else max(daily_uv_index)
             )
 
         return res
@@ -283,6 +291,7 @@ def get_data(param: str, data: List[dict]) -> Any:
                     "air_pressure_at_sea_level",
                     "relative_humidity",
                     "dew_point_temperature",
+                    "ultraviolet_index_clear_sky",
             ):
                 new_state = instant_details[param]
             elif param in ("wind_speed", "wind_speed_of_gust"):
