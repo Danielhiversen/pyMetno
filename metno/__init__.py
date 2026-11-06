@@ -3,10 +3,20 @@ import asyncio
 import datetime
 import logging
 
+from collections.abc import Mapping
 from typing import Any, List
 
 import aiohttp
 import async_timeout
+
+from .cache import CacheEntry
+from .exceptions import (
+    MetNoError,
+    MetNoHttpError,
+    MetNoPayloadError,
+    MetNoTimeoutError,
+    MetNoTransportError,
+)
 
 try:
     import ciso8601
@@ -83,16 +93,49 @@ TIMEOUT = 30
 _LOGGER = logging.getLogger(__name__)
 
 
+def _utcnow():
+    """Return an aware UTC clock value."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _normalize_params(urlparams):
+    """Use the same precision for request identity and wire parameters."""
+    return {
+        "lat": str(round(float(urlparams["lat"]), 4) or 0.0),
+        "lon": str(round(float(urlparams["lon"]), 4) or 0.0),
+        "altitude": str(int(float(urlparams.get("altitude", urlparams.get("msl", 0))))),
+    }
+
+
+def _validate_payload(payload):
+    """Require usable timestamped instant data, leaving weather fields optional."""
+    try:
+        if not isinstance(payload, Mapping) or not isinstance(payload["properties"], Mapping):
+            raise ValueError("Missing forecast properties")
+        timeseries = payload["properties"]["timeseries"]
+        if not isinstance(timeseries, list) or not timeseries:
+            raise ValueError("Missing forecast timeseries")
+        for entry in timeseries:
+            if not isinstance(entry, Mapping) or not isinstance(entry["time"], str):
+                raise ValueError("Invalid forecast entry")
+            timestamp = datetime.datetime.fromisoformat(entry["time"].replace("Z", "+00:00"))
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                raise ValueError("Forecast timestamp must include a timezone")
+            data = entry["data"]
+            if not isinstance(data, Mapping) or not isinstance(data["instant"], Mapping):
+                raise ValueError("Missing instant data")
+            if not isinstance(data["instant"]["details"], Mapping):
+                raise ValueError("Missing instant details")
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        raise MetNoPayloadError("Invalid Locationforecast representation") from error
+
+
 class MetWeatherData:
     """Representation of met weather data."""
 
     def __init__(self, urlparams, websession=None, api_url=DEFAULT_API_URL):
         """Initialize the Weather object."""
-        urlparams = {"lat": str(round(float(urlparams['lat']), 4)),
-                     "lon": str(round(float(urlparams['lon']), 4)),
-                     "altitude": str(int(float(urlparams.get('altitude', urlparams.get('msl', 0))))),
-                     }
-        self._urlparams = urlparams
+        self._urlparams = _normalize_params(urlparams)
         self._api_url = api_url
         if websession is None:
 
@@ -104,23 +147,82 @@ class MetWeatherData:
         else:
             self._websession = websession
         self.data = None
+        self._cache = {}
+        self._fetch_lock = asyncio.Lock()
+
+    def _entry(self):
+        params = _normalize_params(self._urlparams)
+        key = (self._api_url, tuple(sorted(params.items())))
+        return self._cache.setdefault(key, CacheEntry())
+
+    @property
+    def last_error(self):
+        """Return the current request's most recent typed failure, if any."""
+        return self._entry().last_error
+
+    @property
+    def next_fetch_at(self):
+        """Return the current request's earliest next attempt as aware UTC."""
+        return self._entry().next_fetch_at
 
     async def fetching_data(self, *_):
-        """Get the latest data from met.no."""
+        """Return success for usable fresh data, retaining the legacy boolean API."""
         try:
-            async with async_timeout.timeout(TIMEOUT):
-                resp = await self._websession.get(self._api_url, params=self._urlparams)
-            if resp.status >= 400:
-                _LOGGER.error("%s returned %s", self._api_url, resp.status)
-                return False
-            self.data = await resp.json()
-        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
-            _LOGGER.error("Access to %s returned error '%s'", self._api_url, type(err).__name__)
-            return False
-        except ValueError:
-            _LOGGER.exception("Unable to parse json response from %s", self._api_url)
+            await self.fetch_data()
+        except MetNoError:
             return False
         return True
+
+    async def fetch_data(self):
+        """Fetch or reuse a forecast; raise a typed error on failure or cooldown."""
+        async with self._fetch_lock:
+            params = _normalize_params(self._urlparams)
+            api_url = self._api_url
+            key = (api_url, tuple(sorted(params.items())))
+            entry = self._cache.setdefault(key, CacheEntry())
+            self.data = entry.data
+            now = _utcnow()
+            if entry.next_fetch_at is not None and now < entry.next_fetch_at:
+                if entry.last_error is not None:
+                    raise entry.last_error
+                return
+            request_headers = {}
+            if entry.data is not None and entry.last_modified is not None:
+                request_headers["If-Modified-Since"] = entry.last_modified
+            response_headers = {}
+            try:
+                async with async_timeout.timeout(TIMEOUT):
+                    async with self._websession.get(api_url, params=params, headers=request_headers) as response:
+                        response_headers = response.headers
+                        if response.status == 304:
+                            if entry.data is None:
+                                raise MetNoPayloadError("HTTP 304 without a cached representation")
+                            payload = entry.data
+                            last_modified = response.headers.get("Last-Modified", entry.last_modified)
+                        elif response.status != 200:
+                            raise MetNoHttpError(response.status)
+                        else:
+                            try:
+                                payload = await response.json()
+                            except (ValueError, UnicodeError, aiohttp.ContentTypeError) as error:
+                                raise MetNoPayloadError("Invalid Locationforecast JSON") from error
+                            _validate_payload(payload)
+                            last_modified = response.headers.get("Last-Modified")
+            except MetNoError as error:
+                entry.failed(_utcnow(), response_headers, error)
+                raise
+            except asyncio.TimeoutError as error:
+                failure = MetNoTimeoutError("Locationforecast request timed out")
+                entry.failed(_utcnow(), response_headers, failure)
+                raise failure from error
+            except aiohttp.ClientError as error:
+                failure = MetNoTransportError("Locationforecast transport failed")
+                entry.failed(_utcnow(), response_headers, failure)
+                raise failure from error
+            entry.data = payload
+            entry.last_modified = last_modified
+            entry.succeeded(_utcnow(), response_headers)
+            self.data = payload
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""
