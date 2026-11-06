@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import logging
+import math
 
 from collections.abc import Mapping
 from typing import Any, List
@@ -107,6 +108,43 @@ def _normalize_params(urlparams):
     }
 
 
+_INSTANT_NUMERIC_FIELDS = (
+    "air_temperature",
+    "air_pressure_at_sea_level",
+    "relative_humidity",
+    "dew_point_temperature",
+    "ultraviolet_index_clear_sky",
+    "wind_speed",
+    "wind_speed_of_gust",
+    "wind_from_direction",
+    "fog_area_fraction",
+    "cloud_area_fraction",
+    "cloud_area_fraction_low",
+    "cloud_area_fraction_medium",
+    "cloud_area_fraction_high",
+)
+_PERIOD_NUMERIC_FIELDS = (
+    "precipitation_amount",
+    "precipitation_amount_max",
+    "precipitation_amount_min",
+    "probability_of_precipitation",
+    "probability_of_thunder",
+)
+
+
+def _validate_numeric_details(details, fields):
+    """Require present weather measurements to be finite numbers."""
+    for field in fields:
+        if field in details:
+            value = details[field]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"Invalid numeric weather value: {field}")
+
+
 def _validate_payload(payload):
     """Require usable timestamped instant data, leaving weather fields optional."""
     try:
@@ -128,8 +166,29 @@ def _validate_payload(payload):
             data = entry["data"]
             if not isinstance(data, Mapping) or not isinstance(data["instant"], Mapping):
                 raise ValueError("Missing instant data")
-            if not isinstance(data["instant"]["details"], Mapping):
+            instant_details = data["instant"]["details"]
+            if not isinstance(instant_details, Mapping):
                 raise ValueError("Missing instant details")
+            _validate_numeric_details(instant_details, _INSTANT_NUMERIC_FIELDS)
+            for period in ("next_1_hours", "next_6_hours", "next_12_hours"):
+                if period not in data:
+                    continue
+                forecast = data[period]
+                if not isinstance(forecast, Mapping):
+                    raise ValueError("Invalid forecast period")
+                if "details" in forecast:
+                    details = forecast["details"]
+                    if not isinstance(details, Mapping):
+                        raise ValueError("Invalid forecast details")
+                    _validate_numeric_details(details, _PERIOD_NUMERIC_FIELDS)
+                if "summary" in forecast:
+                    summary = forecast["summary"]
+                    if not isinstance(summary, Mapping):
+                        raise ValueError("Invalid forecast summary")
+                    if "symbol_code" in summary and not isinstance(
+                        summary["symbol_code"], str
+                    ):
+                        raise ValueError("Invalid weather symbol")
     except (KeyError, TypeError, ValueError, OverflowError) as error:
         raise MetNoPayloadError("Invalid Locationforecast representation") from error
 
@@ -233,12 +292,20 @@ class MetWeatherData:
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""
-        try:
-            timeseries = self.data["properties"]["timeseries"]
-            now = parse_datetime(timeseries[0]["time"])
-        except (TypeError, KeyError, IndexError):
-            now = datetime.datetime.now(datetime.timezone.utc)
-        return self.get_weather(now, hourly=True)
+        if self.data is None:
+            return {}
+        timestamps = [
+            parse_datetime(entry["time"]).astimezone(datetime.timezone.utc)
+            for entry in self.data["properties"]["timeseries"]
+        ]
+        now = _utcnow().astimezone(datetime.timezone.utc)
+        if not timestamps or now > max(timestamps):
+            return {}
+        current = max(
+            (timestamp for timestamp in timestamps if timestamp <= now),
+            default=min(timestamps),
+        )
+        return self.get_weather(current, hourly=True)
 
     def get_forecast(self, time_zone, hourly=False, range_start=1, range_stop=None):
         """Get the forecast weather data from met.no."""

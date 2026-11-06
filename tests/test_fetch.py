@@ -513,3 +513,254 @@ async def test_deprecated_response_is_validated_before_replacing_data(now: list[
     assert isinstance(weather.last_error, metno.MetNoPayloadError)
     assert weather.data is original
     assert response.closed
+
+
+INSTANT_NUMERIC_FIELDS = (
+    "air_temperature",
+    "air_pressure_at_sea_level",
+    "relative_humidity",
+    "dew_point_temperature",
+    "ultraviolet_index_clear_sky",
+    "wind_speed",
+    "wind_speed_of_gust",
+    "wind_from_direction",
+    "fog_area_fraction",
+    "cloud_area_fraction",
+    "cloud_area_fraction_low",
+    "cloud_area_fraction_medium",
+    "cloud_area_fraction_high",
+)
+PERIOD_NUMERIC_FIELDS = (
+    "precipitation_amount",
+    "precipitation_amount_max",
+    "precipitation_amount_min",
+    "probability_of_precipitation",
+    "probability_of_thunder",
+)
+FORECAST_PERIODS = ("next_1_hours", "next_6_hours", "next_12_hours")
+INVALID_WEATHER_DATA = (
+    [
+        pytest.param({period: value}, id=f"{period}-{name}")
+        for period in FORECAST_PERIODS
+        for name, value in (
+            ("container-list", [1]),
+            ("container-null", None),
+            ("details-list", {"details": [1]}),
+            ("details-null", {"details": None}),
+            ("summary-list", {"summary": [1]}),
+            ("summary-null", {"summary": None}),
+            ("symbol-list", {"summary": {"symbol_code": ["rain"]}}),
+            ("symbol-null", {"summary": {"symbol_code": None}}),
+        )
+    ]
+    + [
+        pytest.param(
+            {"instant": {"details": {field: value}}}, id=f"instant-{field}-{name}"
+        )
+        for field in INSTANT_NUMERIC_FIELDS
+        for name, value in (
+            ("string", "4"),
+            ("bool", True),
+            ("nan", float("nan")),
+            ("infinity", float("inf")),
+            ("negative-infinity", float("-inf")),
+            ("null", None),
+        )
+    ]
+    + [
+        pytest.param(
+            {period: {"details": {field: value}}}, id=f"{period}-{field}-{name}"
+        )
+        for period in FORECAST_PERIODS
+        for field in PERIOD_NUMERIC_FIELDS
+        for name, value in (
+            ("string", "4"),
+            ("bool", False),
+            ("nan", float("nan")),
+            ("infinity", float("inf")),
+            ("negative-infinity", float("-inf")),
+            ("null", None),
+        )
+    ]
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_data", INVALID_WEATHER_DATA)
+async def test_invalid_weather_preserves_usable_cache_and_validator(
+    now: list[dt.datetime], invalid_data: dict
+) -> None:
+    payload = copy.deepcopy(PAYLOAD)
+    payload["properties"]["timeseries"][0]["data"].update(invalid_data)
+    weather, session = client(
+        Response(headers={"Last-Modified": LAST_MODIFIED}),
+        Response(payload=payload, headers={"Last-Modified": "bad replacement"}),
+        Response(304),
+    )
+    await weather.fetch_data()
+    original = weather.data
+    now[0] += dt.timedelta(hours=3)
+    with pytest.raises(metno.MetNoPayloadError):
+        await weather.fetch_data()
+    assert weather.data is original
+    assert isinstance(weather.last_error, metno.MetNoPayloadError)
+    assert weather.get_weather(START, hourly=True)["temperature"] == 4.0
+    assert weather.get_weather(START)["temperature"] == 4.0
+    now[0] = weather.next_fetch_at
+    await weather.fetch_data()
+    assert session.requests[2][1]["headers"] == {"If-Modified-Since": LAST_MODIFIED}
+    assert weather.data is original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("period", FORECAST_PERIODS)
+@pytest.mark.parametrize(
+    "period_data",
+    [
+        pytest.param({}, id="omitted-sections"),
+        pytest.param({"details": {}, "summary": {}}, id="omitted-values"),
+        pytest.param(
+            {"details": {"future_number": [1]}, "summary": {"future_symbol": {}}},
+            id="unknown-values",
+        ),
+        pytest.param(
+            {
+                "details": dict.fromkeys(PERIOD_NUMERIC_FIELDS, 0),
+                "summary": {"symbol_code": "unknown-symbol"},
+                "future_section": [1],
+            },
+            id="numeric-zeros-and-unknown-symbol",
+        ),
+    ],
+)
+async def test_optional_weather_and_unknown_fields_remain_accepted(
+    now: list[dt.datetime], period: str, period_data: dict
+) -> None:
+    payload = copy.deepcopy(PAYLOAD)
+    data = payload["properties"]["timeseries"][0]["data"]
+    data["instant"]["details"] = dict.fromkeys(INSTANT_NUMERIC_FIELDS, 0.0)
+    data["instant"]["details"]["future_number"] = []
+    data["future_period"] = []
+    data[period] = period_data
+    weather, _ = client(Response(payload=payload))
+    assert await weather.fetch_data() is True
+    assert weather.get_current_weather()["temperature"] == 0.0
+    assert weather.get_weather(START)["temperature"] == 0.0
+
+
+@pytest.fixture
+def current_payload() -> dict:
+    payload = copy.deepcopy(PAYLOAD)
+    payload["properties"]["timeseries"] = [
+        {
+            "time": timestamp,
+            "data": {
+                "instant": {
+                    "details": {"air_temperature": temperature, "wind_speed": wind}
+                },
+                "next_1_hours": {"summary": {"symbol_code": symbol}},
+            },
+        }
+        for timestamp, temperature, wind, symbol in (
+            ("2026-01-01T23:00:00Z", 1.0, 1.0, "clearsky_night"),
+            ("2026-01-02T00:00:00Z", 2.0, 2.0, "rain"),
+            ("2026-01-02T01:00:00Z", 3.0, 3.0, "snow"),
+            ("2026-01-02T03:00:00Z", 4.0, 4.0, "cloudy"),
+        )
+    ]
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_cached_current_weather_advances_through_utc_midnight(
+    now: list[dt.datetime], current_payload: dict
+) -> None:
+    now[0] = dt.datetime(2026, 1, 1, 23, 10, tzinfo=UTC)
+    weather, session = client(Response(payload=current_payload))
+    await weather.fetch_data()
+    assert weather.get_current_weather()["temperature"] == 1.0
+    now[0] = dt.datetime(2026, 1, 2, tzinfo=UTC)
+    await weather.fetch_data()
+    assert weather.get_current_weather()["temperature"] == 2.0
+    assert weather.get_current_weather()["wind_speed"] == 7.2
+    assert weather.get_current_weather()["condition"] == "rainy"
+    now[0] = dt.datetime(2026, 1, 2, 0, 30, tzinfo=UTC)
+    await weather.fetch_data()
+    assert weather.get_current_weather()["temperature"] == 2.0
+    now[0] = dt.datetime(2026, 1, 2, 1, 15, tzinfo=UTC)
+    await weather.fetch_data()
+    assert weather.get_current_weather()["temperature"] == 3.0
+    assert weather.get_current_weather()["wind_speed"] == 10.8
+    assert weather.get_current_weather()["condition"] == "snowy"
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("current", "expected"),
+    [
+        pytest.param(
+            dt.datetime(2026, 1, 1, 22, 59, tzinfo=UTC),
+            (1.0, 3.6, "clear-night"),
+            id="before-first",
+        ),
+        pytest.param(
+            dt.datetime(2026, 1, 2, tzinfo=UTC),
+            (2.0, 7.2, "rainy"),
+            id="exact-boundary",
+        ),
+        pytest.param(
+            dt.datetime(2026, 1, 2, 0, 59, tzinfo=UTC),
+            (2.0, 7.2, "rainy"),
+            id="sub-hour",
+        ),
+        pytest.param(
+            dt.datetime(2026, 1, 2, 2, 30, tzinfo=UTC),
+            (3.0, 10.8, "snowy"),
+            id="sparse-slot",
+        ),
+        pytest.param(
+            dt.datetime(2026, 1, 2, 4, tzinfo=dt.timezone(dt.timedelta(hours=1))),
+            (4.0, 14.4, "cloudy"),
+            id="final-offset-boundary",
+        ),
+    ],
+)
+async def test_current_weather_selects_actual_forecast_slot(
+    now: list[dt.datetime], current_payload: dict, current: dt.datetime, expected: tuple
+) -> None:
+    weather, _ = client(Response(payload=current_payload))
+    await weather.fetch_data()
+    now[0] = current
+    result = weather.get_current_weather()
+    assert (
+        result["temperature"],
+        result["wind_speed"],
+        result["condition"],
+    ) == expected
+
+
+@pytest.mark.asyncio
+async def test_current_weather_beyond_final_timestamp_is_empty(
+    now: list[dt.datetime], current_payload: dict
+) -> None:
+    weather, _ = client(Response(payload=current_payload))
+    await weather.fetch_data()
+    now[0] = dt.datetime(2026, 1, 2, 3, 0, 0, 1, tzinfo=UTC)
+    assert weather.get_current_weather() == {}
+
+
+@pytest.mark.asyncio
+async def test_timestamp_validation_without_ciso8601(
+    now: list[dt.datetime], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(metno, "ciso8601", None)
+    invalid = copy.deepcopy(PAYLOAD)
+    invalid["properties"]["timeseries"][0]["time"] = "invalid"
+    weather, _ = client(Response(), Response(payload=invalid))
+    await weather.fetch_data()
+    assert weather.get_current_weather()["temperature"] == 4.0
+    now[0] += dt.timedelta(hours=3)
+    with pytest.raises(metno.MetNoPayloadError):
+        await weather.fetch_data()
+    assert weather.get_weather(START, hourly=True)["temperature"] == 4.0
