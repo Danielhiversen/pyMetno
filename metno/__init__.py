@@ -173,8 +173,8 @@ class MetWeatherData:
             return False
         return True
 
-    async def fetch_data(self):
-        """Fetch or reuse a forecast; raise a typed error on failure or cooldown."""
+    async def fetch_data(self) -> bool:
+        """Return True for a fetched/cached forecast, raising typed failures."""
         async with self._fetch_lock:
             params = _normalize_params(self._urlparams)
             api_url = self._api_url
@@ -185,7 +185,7 @@ class MetWeatherData:
             if entry.next_fetch_at is not None and now < entry.next_fetch_at:
                 if entry.last_error is not None:
                     raise entry.last_error
-                return
+                return True
             request_headers = {}
             if entry.data is not None and entry.last_modified is not None:
                 request_headers["If-Modified-Since"] = entry.last_modified
@@ -194,12 +194,14 @@ class MetWeatherData:
                 async with async_timeout.timeout(TIMEOUT):
                     async with self._websession.get(api_url, params=params, headers=request_headers) as response:
                         response_headers = response.headers
+                        if response.status == 203:
+                            _LOGGER.warning("%s is deprecated (HTTP 203)", api_url)
                         if response.status == 304:
                             if entry.data is None:
                                 raise MetNoPayloadError("HTTP 304 without a cached representation")
                             payload = entry.data
                             last_modified = response.headers.get("Last-Modified", entry.last_modified)
-                        elif response.status != 200:
+                        elif response.status not in (200, 203):
                             raise MetNoHttpError(response.status)
                         else:
                             try:
@@ -223,6 +225,7 @@ class MetWeatherData:
             entry.last_modified = last_modified
             entry.succeeded(_utcnow(), response_headers)
             self.data = payload
+            return True
 
     def get_current_weather(self):
         """Get the current weather data from met.no."""

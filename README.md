@@ -24,13 +24,17 @@ async def forecast():
         return weather.data
 ```
 
-`await fetch_data()` returns `None` on success and raises `MetNoError` on
+`await fetch_data()` returns `True` on success and raises `MetNoError` on
 failure. Subclasses distinguish `MetNoHttpError` (with a `status` attribute),
 `MetNoPayloadError` (JSON, schema or an unexpected 304), `MetNoTimeoutError`,
 and `MetNoTransportError`. The legacy `await fetching_data(*args)` continues
 to return `True` or `False`. Both APIs expose the latest typed failure through
 `last_error`, clear it on success, and propagate task cancellation. The client
 does not log fetch failures; callers can choose their own reporting policy.
+A valid HTTP 203 response succeeds and follows the normal cache policy. Each
+received 203 logs a deprecation warning as required by the
+[MET terms of service](https://api.met.no/doc/TermsOfService); cache hits do not
+repeat the warning.
 
 A successful download or 304 revalidation is cached for **at least three
 hours**, for all geographic regions. A later valid HTTP `Expires` extends that

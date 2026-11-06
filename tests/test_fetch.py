@@ -145,7 +145,7 @@ async def test_revalidation_uses_exact_validator_and_does_not_read_304(
     )
     assert await weather.fetching_data()
     now[0] += dt.timedelta(hours=3)
-    assert await weather.fetch_data() is None
+    assert await weather.fetch_data() is True
     assert session.requests[1][1]["headers"] == {"If-Modified-Since": LAST_MODIFIED}
     assert response.body_reads == 0
     assert response.closed
@@ -467,3 +467,49 @@ async def test_optional_weather_fields_not_required(now: list[dt.datetime]) -> N
     weather, _ = client(Response(payload=payload))
     await weather.fetch_data()
     assert weather.data == payload
+
+
+@pytest.mark.asyncio
+async def test_strict_fetch_returns_true_for_download_and_cache(now: list[dt.datetime]) -> None:
+    weather, session = client(Response())
+    assert await weather.fetch_data() is True
+    assert await weather.fetch_data() is True
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["fetch_data", "fetching_data"])
+async def test_deprecated_response_succeeds_and_warns_only_on_receipt(
+    now: list[dt.datetime], caplog: pytest.LogCaptureFixture, method: str
+) -> None:
+    response = Response(203, headers={"Last-Modified": LAST_MODIFIED})
+    weather, session = client(response, Response(304))
+    fetch = getattr(weather, method)
+    assert await fetch() is True
+    assert weather.data == PAYLOAD
+    assert weather.last_error is None
+    assert weather.next_fetch_at == START + dt.timedelta(hours=3)
+    assert response.closed
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelname == "WARNING"
+    assert "deprecated" in caplog.records[0].message.lower()
+    assert await fetch() is True
+    assert len(session.requests) == 1
+    assert len(caplog.records) == 1
+    now[0] = weather.next_fetch_at
+    assert await fetch() is True
+    assert session.requests[1][1]["headers"] == {"If-Modified-Since": LAST_MODIFIED}
+    assert len(caplog.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_deprecated_response_is_validated_before_replacing_data(now: list[dt.datetime]) -> None:
+    response = Response(203, payload={})
+    weather, _ = client(Response(), response)
+    await weather.fetch_data()
+    original = weather.data
+    now[0] = weather.next_fetch_at
+    assert await weather.fetching_data() is False
+    assert isinstance(weather.last_error, metno.MetNoPayloadError)
+    assert weather.data is original
+    assert response.closed
