@@ -118,8 +118,12 @@ def _validate_payload(payload):
         for entry in timeseries:
             if not isinstance(entry, Mapping) or not isinstance(entry["time"], str):
                 raise ValueError("Invalid forecast entry")
-            timestamp = datetime.datetime.fromisoformat(entry["time"].replace("Z", "+00:00"))
-            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            timestamp = parse_datetime(entry["time"])
+            if (
+                not isinstance(timestamp, datetime.datetime)
+                or timestamp.tzinfo is None
+                or timestamp.utcoffset() is None
+            ):
                 raise ValueError("Forecast timestamp must include a timezone")
             data = entry["data"]
             if not isinstance(data, Mapping) or not isinstance(data["instant"], Mapping):
