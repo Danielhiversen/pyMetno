@@ -153,6 +153,7 @@ def _validate_payload(payload):
         timeseries = payload["properties"]["timeseries"]
         if not isinstance(timeseries, list) or not timeseries:
             raise ValueError("Missing forecast timeseries")
+        previous_timestamp = None
         for entry in timeseries:
             if not isinstance(entry, Mapping) or not isinstance(entry["time"], str):
                 raise ValueError("Invalid forecast entry")
@@ -163,6 +164,9 @@ def _validate_payload(payload):
                 or timestamp.utcoffset() is None
             ):
                 raise ValueError("Forecast timestamp must include a timezone")
+            if previous_timestamp is not None and timestamp < previous_timestamp:
+                raise ValueError("Forecast timestamps are out of order")
+            previous_timestamp = timestamp
             data = entry["data"]
             if not isinstance(data, Mapping) or not isinstance(data["instant"], Mapping):
                 raise ValueError("Missing instant data")
@@ -247,7 +251,7 @@ class MetWeatherData:
             now = _utcnow()
             if entry.next_fetch_at is not None and now < entry.next_fetch_at:
                 if entry.last_error is not None:
-                    raise entry.last_error
+                    raise entry.last_error.with_traceback(None)
                 return True
             request_headers = {}
             if entry.data is not None and entry.last_modified is not None:
@@ -255,7 +259,9 @@ class MetWeatherData:
             response_headers = {}
             try:
                 async with async_timeout.timeout(TIMEOUT):
-                    async with self._websession.get(api_url, params=params, headers=request_headers) as response:
+                    async with self._websession.get(
+                        api_url, params=params, headers=request_headers
+                    ) as response:
                         response_headers = response.headers
                         if response.status == 203:
                             _LOGGER.warning("%s is deprecated (HTTP 203)", api_url)
@@ -281,6 +287,14 @@ class MetWeatherData:
                 entry.failed(_utcnow(), response_headers, failure)
                 raise failure from error
             except aiohttp.ClientError as error:
+                if isinstance(error, aiohttp.ClientResponseError):
+                    status = getattr(error, "status", None)
+                    if status is None:
+                        status = error.code
+                    if status >= 400:
+                        failure = MetNoHttpError(status)
+                        entry.failed(_utcnow(), error.headers or response_headers, failure)
+                        raise failure from error
                 failure = MetNoTransportError("Locationforecast transport failed")
                 entry.failed(_utcnow(), response_headers, failure)
                 raise failure from error

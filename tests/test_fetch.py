@@ -764,3 +764,87 @@ async def test_timestamp_validation_without_ciso8601(
     with pytest.raises(metno.MetNoPayloadError):
         await weather.fetch_data()
     assert weather.get_weather(START, hourly=True)["temperature"] == 4.0
+
+
+@pytest.mark.asyncio
+async def test_out_of_order_timestamps_preserve_cached_forecast(
+    now: list[dt.datetime], current_payload: dict
+) -> None:
+    invalid = copy.deepcopy(current_payload)
+    timeseries = invalid["properties"]["timeseries"]
+    timeseries[1], timeseries[2] = timeseries[2], timeseries[1]
+    weather, session = client(
+        Response(payload=current_payload, headers={"Last-Modified": LAST_MODIFIED}),
+        Response(payload=invalid, headers={"Last-Modified": "new"}),
+        Response(304),
+    )
+    await weather.fetch_data()
+    original = weather.data
+    now[0] = weather.next_fetch_at
+    with pytest.raises(metno.MetNoPayloadError):
+        await weather.fetch_data()
+    assert weather.data is original
+    now[0] = weather.next_fetch_at
+    assert await weather.fetch_data() is True
+    assert session.requests[-1][1]["headers"] == {"If-Modified-Since": LAST_MODIFIED}
+
+
+@pytest.mark.asyncio
+async def test_cooldown_does_not_accumulate_exception_tracebacks(
+    now: list[dt.datetime],
+) -> None:
+    weather, session = client(Response(503, headers={"Retry-After": "18000"}))
+    assert await weather.fetching_data() is False
+    error = weather.last_error
+
+    def traceback_depth() -> int:
+        depth = 0
+        traceback = error.__traceback__
+        while traceback is not None:
+            depth += 1
+            traceback = traceback.tb_next
+        return depth
+
+    assert await weather.fetching_data() is False
+    depth = traceback_depth()
+    for _ in range(20):
+        assert await weather.fetching_data() is False
+    assert weather.last_error is error
+    assert traceback_depth() == depth
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_after_with_automatic_status_raising(
+    now: list[dt.datetime],
+) -> None:
+    from aiohttp import web
+    from aiohttp.test_utils import TestServer
+
+    async def unavailable(request: web.Request) -> web.Response:
+        return web.Response(status=503, headers={"Retry-After": "18000"})
+
+    app = web.Application()
+    app.router.add_get("/", unavailable)
+    async with TestServer(app) as server:
+        async with aiohttp.ClientSession(raise_for_status=True) as session:
+            weather = metno.MetWeatherData(
+                {"lat": "60", "lon": "10"}, session, api_url=str(server.make_url("/"))
+            )
+            with pytest.raises(metno.MetNoHttpError) as exc:
+                await weather.fetch_data()
+            assert exc.value.status == 503
+            assert weather.next_fetch_at == START + dt.timedelta(hours=5)
+
+
+@pytest.mark.asyncio
+async def test_backoff_retains_jitter_at_cap(
+    now: list[dt.datetime], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    weather, _ = client(*(Response(503) for _ in range(8)))
+    for _ in range(7):
+        assert await weather.fetching_data() is False
+        now[0] = weather.next_fetch_at
+    monkeypatch.setattr("random.uniform", lambda a, b: a)
+    assert await weather.fetching_data() is False
+    assert 3200 < (weather.next_fetch_at - now[0]).total_seconds() < 3600

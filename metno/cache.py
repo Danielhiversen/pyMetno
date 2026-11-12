@@ -31,8 +31,12 @@ class CacheEntry:
     def failed(self, now, headers, error):
         """Schedule a later attempt without replacing a valid representation."""
         self.failures = min(self.failures + 1, 7)
-        base = min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * 2 ** (self.failures - 1))
-        delay = min(RETRY_MAX_SECONDS, base + random.uniform(0.001, base * 0.1))
+        jitter_fraction = 0.1
+        base = min(
+            RETRY_MAX_SECONDS / (1 + jitter_fraction),
+            RETRY_BASE_SECONDS * 2 ** (self.failures - 1),
+        )
+        delay = base + random.uniform(0.001, base * jitter_fraction)
         self.next_fetch_at = max(
             self.next_fetch_at or now,
             now + datetime.timedelta(seconds=delay),
