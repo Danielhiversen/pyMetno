@@ -2,11 +2,22 @@
 import asyncio
 import datetime
 import logging
+import math
 
+from collections.abc import Mapping
 from typing import Any, List
 
 import aiohttp
 import async_timeout
+
+from .cache import CacheEntry
+from .exceptions import (
+    MetNoError,
+    MetNoHttpError,
+    MetNoPayloadError,
+    MetNoTimeoutError,
+    MetNoTransportError,
+)
 
 try:
     import ciso8601
@@ -83,16 +94,115 @@ TIMEOUT = 30
 _LOGGER = logging.getLogger(__name__)
 
 
+def _utcnow():
+    """Return an aware UTC clock value."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _normalize_params(urlparams):
+    """Use the same precision for request identity and wire parameters."""
+    return {
+        "lat": str(round(float(urlparams["lat"]), 4) or 0.0),
+        "lon": str(round(float(urlparams["lon"]), 4) or 0.0),
+        "altitude": str(int(float(urlparams.get("altitude", urlparams.get("msl", 0))))),
+    }
+
+
+_INSTANT_NUMERIC_FIELDS = (
+    "air_temperature",
+    "air_pressure_at_sea_level",
+    "relative_humidity",
+    "dew_point_temperature",
+    "ultraviolet_index_clear_sky",
+    "wind_speed",
+    "wind_speed_of_gust",
+    "wind_from_direction",
+    "fog_area_fraction",
+    "cloud_area_fraction",
+    "cloud_area_fraction_low",
+    "cloud_area_fraction_medium",
+    "cloud_area_fraction_high",
+)
+_PERIOD_NUMERIC_FIELDS = (
+    "precipitation_amount",
+    "precipitation_amount_max",
+    "precipitation_amount_min",
+    "probability_of_precipitation",
+    "probability_of_thunder",
+)
+
+
+def _validate_numeric_details(details, fields):
+    """Require present weather measurements to be finite numbers."""
+    for field in fields:
+        if field in details:
+            value = details[field]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"Invalid numeric weather value: {field}")
+
+
+def _validate_payload(payload):
+    """Require usable timestamped instant data, leaving weather fields optional."""
+    try:
+        if not isinstance(payload, Mapping) or not isinstance(payload["properties"], Mapping):
+            raise ValueError("Missing forecast properties")
+        timeseries = payload["properties"]["timeseries"]
+        if not isinstance(timeseries, list) or not timeseries:
+            raise ValueError("Missing forecast timeseries")
+        previous_timestamp = None
+        for entry in timeseries:
+            if not isinstance(entry, Mapping) or not isinstance(entry["time"], str):
+                raise ValueError("Invalid forecast entry")
+            timestamp = parse_datetime(entry["time"])
+            if (
+                not isinstance(timestamp, datetime.datetime)
+                or timestamp.tzinfo is None
+                or timestamp.utcoffset() is None
+            ):
+                raise ValueError("Forecast timestamp must include a timezone")
+            if previous_timestamp is not None and timestamp < previous_timestamp:
+                raise ValueError("Forecast timestamps are out of order")
+            previous_timestamp = timestamp
+            data = entry["data"]
+            if not isinstance(data, Mapping) or not isinstance(data["instant"], Mapping):
+                raise ValueError("Missing instant data")
+            instant_details = data["instant"]["details"]
+            if not isinstance(instant_details, Mapping):
+                raise ValueError("Missing instant details")
+            _validate_numeric_details(instant_details, _INSTANT_NUMERIC_FIELDS)
+            for period in ("next_1_hours", "next_6_hours", "next_12_hours"):
+                if period not in data:
+                    continue
+                forecast = data[period]
+                if not isinstance(forecast, Mapping):
+                    raise ValueError("Invalid forecast period")
+                if "details" in forecast:
+                    details = forecast["details"]
+                    if not isinstance(details, Mapping):
+                        raise ValueError("Invalid forecast details")
+                    _validate_numeric_details(details, _PERIOD_NUMERIC_FIELDS)
+                if "summary" in forecast:
+                    summary = forecast["summary"]
+                    if not isinstance(summary, Mapping):
+                        raise ValueError("Invalid forecast summary")
+                    if "symbol_code" in summary and not isinstance(
+                        summary["symbol_code"], str
+                    ):
+                        raise ValueError("Invalid weather symbol")
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        raise MetNoPayloadError("Invalid Locationforecast representation") from error
+
+
 class MetWeatherData:
     """Representation of met weather data."""
 
     def __init__(self, urlparams, websession=None, api_url=DEFAULT_API_URL):
         """Initialize the Weather object."""
-        urlparams = {"lat": str(round(float(urlparams['lat']), 4)),
-                     "lon": str(round(float(urlparams['lon']), 4)),
-                     "altitude": str(int(float(urlparams.get('altitude', urlparams.get('msl', 0))))),
-                     }
-        self._urlparams = urlparams
+        self._urlparams = _normalize_params(urlparams)
         self._api_url = api_url
         if websession is None:
 
@@ -104,32 +214,112 @@ class MetWeatherData:
         else:
             self._websession = websession
         self.data = None
+        self._cache = {}
+        self._fetch_lock = asyncio.Lock()
+
+    def _entry(self):
+        params = _normalize_params(self._urlparams)
+        key = (self._api_url, tuple(sorted(params.items())))
+        return self._cache.setdefault(key, CacheEntry())
+
+    @property
+    def last_error(self):
+        """Return the current request's most recent typed failure, if any."""
+        return self._entry().last_error
+
+    @property
+    def next_fetch_at(self):
+        """Return the current request's earliest next attempt as aware UTC."""
+        return self._entry().next_fetch_at
 
     async def fetching_data(self, *_):
-        """Get the latest data from met.no."""
+        """Return success for usable fresh data, retaining the legacy boolean API."""
         try:
-            async with async_timeout.timeout(TIMEOUT):
-                resp = await self._websession.get(self._api_url, params=self._urlparams)
-            if resp.status >= 400:
-                _LOGGER.error("%s returned %s", self._api_url, resp.status)
-                return False
-            self.data = await resp.json()
-        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
-            _LOGGER.error("Access to %s returned error '%s'", self._api_url, type(err).__name__)
-            return False
-        except ValueError:
-            _LOGGER.exception("Unable to parse json response from %s", self._api_url)
+            await self.fetch_data()
+        except MetNoError:
             return False
         return True
 
+    async def fetch_data(self) -> bool:
+        """Return True for a fetched/cached forecast, raising typed failures."""
+        async with self._fetch_lock:
+            params = _normalize_params(self._urlparams)
+            api_url = self._api_url
+            key = (api_url, tuple(sorted(params.items())))
+            entry = self._cache.setdefault(key, CacheEntry())
+            self.data = entry.data
+            now = _utcnow()
+            if entry.next_fetch_at is not None and now < entry.next_fetch_at:
+                if entry.last_error is not None:
+                    raise entry.last_error.with_traceback(None)
+                return True
+            request_headers = {}
+            if entry.data is not None and entry.last_modified is not None:
+                request_headers["If-Modified-Since"] = entry.last_modified
+            response_headers = {}
+            try:
+                async with async_timeout.timeout(TIMEOUT):
+                    async with self._websession.get(
+                        api_url, params=params, headers=request_headers
+                    ) as response:
+                        response_headers = response.headers
+                        if response.status == 203:
+                            _LOGGER.warning("%s is deprecated (HTTP 203)", api_url)
+                        if response.status == 304:
+                            if entry.data is None:
+                                raise MetNoPayloadError("HTTP 304 without a cached representation")
+                            payload = entry.data
+                            last_modified = response.headers.get("Last-Modified", entry.last_modified)
+                        elif response.status not in (200, 203):
+                            raise MetNoHttpError(response.status)
+                        else:
+                            try:
+                                payload = await response.json()
+                            except (ValueError, UnicodeError, aiohttp.ContentTypeError) as error:
+                                raise MetNoPayloadError("Invalid Locationforecast JSON") from error
+                            _validate_payload(payload)
+                            last_modified = response.headers.get("Last-Modified")
+            except MetNoError as error:
+                entry.failed(_utcnow(), response_headers, error)
+                raise
+            except asyncio.TimeoutError as error:
+                failure = MetNoTimeoutError("Locationforecast request timed out")
+                entry.failed(_utcnow(), response_headers, failure)
+                raise failure from error
+            except aiohttp.ClientError as error:
+                if isinstance(error, aiohttp.ClientResponseError):
+                    status = getattr(error, "status", None)
+                    if status is None:
+                        status = error.code
+                    if status >= 400:
+                        failure = MetNoHttpError(status)
+                        entry.failed(_utcnow(), error.headers or response_headers, failure)
+                        raise failure from error
+                failure = MetNoTransportError("Locationforecast transport failed")
+                entry.failed(_utcnow(), response_headers, failure)
+                raise failure from error
+            entry.data = payload
+            entry.last_modified = last_modified
+            entry.succeeded(_utcnow(), response_headers)
+            self.data = payload
+            return True
+
     def get_current_weather(self):
         """Get the current weather data from met.no."""
-        try:
-            timeseries = self.data["properties"]["timeseries"]
-            now = parse_datetime(timeseries[0]["time"])
-        except (TypeError, KeyError, IndexError):
-            now = datetime.datetime.now(datetime.timezone.utc)
-        return self.get_weather(now, hourly=True)
+        if self.data is None:
+            return {}
+        timestamps = [
+            parse_datetime(entry["time"]).astimezone(datetime.timezone.utc)
+            for entry in self.data["properties"]["timeseries"]
+        ]
+        now = _utcnow().astimezone(datetime.timezone.utc)
+        if not timestamps or now > max(timestamps):
+            return {}
+        current = max(
+            (timestamp for timestamp in timestamps if timestamp <= now),
+            default=min(timestamps),
+        )
+        return self.get_weather(current, hourly=True)
 
     def get_forecast(self, time_zone, hourly=False, range_start=1, range_stop=None):
         """Get the forecast weather data from met.no."""
